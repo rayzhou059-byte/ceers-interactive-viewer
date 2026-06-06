@@ -536,7 +536,7 @@
             return;
         }
 
-        const callbackName = "annotationCallback_" + STATIC_META.srcid.replace(/[^A-Za-z0-9_]/g, "_") + "_" + Date.now();
+        const callbackName = "annotationReadCallback_" + STATIC_META.srcid.replace(/[^A-Za-z0-9_]/g, "_") + "_" + Date.now();
         let script = null;
 
         window[callbackName] = function(response) {
@@ -565,12 +565,11 @@
         };
 
         script = document.createElement("script");
-        const url = ANNOTATION_ENDPOINT
-            + "?srcid=" + encodeURIComponent(STATIC_META.srcid)
+        script.src = ANNOTATION_ENDPOINT
+            + "?action=read"
+            + "&srcid=" + encodeURIComponent(STATIC_META.srcid)
             + "&callback=" + encodeURIComponent(callbackName)
             + "&_=" + Date.now();
-
-        script.src = url;
 
         script.onerror = function() {
             status.textContent = "Failed to load shared annotation.";
@@ -580,7 +579,7 @@
         document.body.appendChild(script);
     }
 
-    async function submitAnnotation() {
+    function submitAnnotation() {
         const sourceTypes = Array.from(
             document.querySelectorAll('input[name="source_type"]:checked')
         ).map(x => x.value).join(";");
@@ -603,26 +602,43 @@
             return;
         }
 
-        status.textContent = "Saving...";
+        status.textContent = "Submitting...";
 
-        try {
-            await fetch(ANNOTATION_ENDPOINT, {
-                method: "POST",
-                mode: "no-cors",
-                headers: {
-                    "Content-Type": "text/plain"
-                },
-                body: JSON.stringify(payload)
-            });
+        const callbackName = "annotationSaveCallback_" + STATIC_META.srcid.replace(/[^A-Za-z0-9_]/g, "_") + "_" + Date.now();
+        let script = null;
 
-            status.textContent = "Submitted";
-            document.getElementById("server_annotation_status").textContent =
-                "Submitted. Reopen this source to load the latest shared annotation.";
+        window[callbackName] = function(response) {
+            try {
+                if (response && response.status === "ok") {
+                    status.textContent = "Saved to shared sheet";
+                    document.getElementById("server_annotation_status").textContent =
+                        "Saved to shared sheet. Reopen this source to load the latest shared annotation.";
+                } else {
+                    status.textContent = "Submit failed";
+                    console.log(response);
+                }
+            } finally {
+                delete window[callbackName];
 
-        } catch (err) {
-            status.textContent = "Saved locally; submit failed";
-            console.error(err);
-        }
+                if (script && script.parentNode) {
+                    script.parentNode.removeChild(script);
+                }
+            }
+        };
+
+        script = document.createElement("script");
+        script.src = ANNOTATION_ENDPOINT
+            + "?action=save"
+            + "&payload=" + encodeURIComponent(JSON.stringify(payload))
+            + "&callback=" + encodeURIComponent(callbackName)
+            + "&_=" + Date.now();
+
+        script.onerror = function() {
+            status.textContent = "Submit failed";
+            delete window[callbackName];
+        };
+
+        document.body.appendChild(script);
     }
 
     window.addEventListener("DOMContentLoaded", function() {
