@@ -443,15 +443,10 @@
                     <option value="I don't know">I don't know</option>
                 </select>
             </label>
-
-            <label>
-                Reviewer
-                <input id="reviewer" type="text" placeholder="your name">
-            </label>
         </div>
 
         <div class="checkbox-row">
-            <label><input type="checkbox" name="source_type" value="good_data"> good data</label>
+            <label><input type="checkbox" name="source_type" value="bad_data"> bad data</label>
             <label><input type="checkbox" name="source_type" value="continuum"> continuum</label>
             <label><input type="checkbox" name="source_type" value="emission_line"> emission line</label>
             <label><input type="checkbox" name="source_type" value="absorption_line"> absorption line</label>
@@ -486,10 +481,6 @@
             document.getElementById("redshift_robustness").value = robustness;
         }
 
-        if (data.reviewer !== undefined) {
-            document.getElementById("reviewer").value = data.reviewer || "";
-        }
-
         if (data.notes !== undefined) {
             document.getElementById("notes").value = data.notes || "";
         }
@@ -500,8 +491,8 @@
                 .filter(x => x.length > 0)
             : [];
 
-        if (data.bad_data === "good" && !selectedTypes.includes("good_data")) {
-            selectedTypes.push("good_data");
+        if (data.bad_data === "bad" && !selectedTypes.includes("bad_data")) {
+            selectedTypes.push("bad_data");
         }
 
         if (["clear", "weak_or_possible"].includes(data.emission_line)
@@ -546,10 +537,9 @@
                     applyAnnotationToForm(response.annotation);
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(response.annotation));
 
-                    const reviewer = response.annotation.reviewer || "unknown reviewer";
                     const timestamp = response.annotation.timestamp || "unknown time";
 
-                    status.textContent = "Loaded latest shared annotation by " + reviewer + " at " + timestamp;
+                    status.textContent = "Loaded latest shared annotation at " + timestamp;
                 } else if (response && response.status === "ok" && !response.found) {
                     status.textContent = "No shared annotation found for this source.";
                 } else {
@@ -589,12 +579,12 @@
         const payload = Object.assign({}, STATIC_META, {
             catalog_srcid: STATIC_META.srcid,
             srcid: STATIC_META.annotation_key,
-            bad_data: selectedTypes.includes("good_data") ? "good" : "",
+            bad_data: selectedTypes.includes("bad_data") ? "bad" : "good",
             redshift_robustness: document.getElementById("redshift_robustness").value,
             emission_line: selectedTypes.includes("emission_line") ? "clear" : "",
             source_type: sourceTypes,
             notes: document.getElementById("notes").value,
-            reviewer: document.getElementById("reviewer").value
+            reviewer: ""
         });
 
         const status = document.getElementById("save_status");
