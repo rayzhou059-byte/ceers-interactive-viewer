@@ -575,6 +575,15 @@
             document.querySelectorAll('input[name="source_type"]:checked')
         ).map(x => x.value);
         const sourceTypes = selectedTypes.join(";");
+        const reviewerName = (
+            localStorage.getItem("ceers_viewer_reviewer") || ""
+        ).trim();
+        const status = document.getElementById("save_status");
+
+        if (!reviewerName) {
+            status.textContent = "Please enter your name on the viewer index page first";
+            return;
+        }
 
         const payload = Object.assign({}, STATIC_META, {
             catalog_srcid: STATIC_META.srcid,
@@ -584,10 +593,8 @@
             emission_line: selectedTypes.includes("emission_line") ? "clear" : "",
             source_type: sourceTypes,
             notes: document.getElementById("notes").value,
-            reviewer: ""
+            reviewer: reviewerName
         });
-
-        const status = document.getElementById("save_status");
 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 
