@@ -1,67 +1,1078 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>BLAGN check</title>
   <style>
-    * { box-sizing:border-box; } body { margin:0; font:14px Arial,sans-serif; background:#eef2f6; }
-    .bar { min-height:60px; display:flex; align-items:center; gap:10px; padding:10px 16px; color:white; background:#173f5f; flex-wrap:wrap; }
-    .bar strong { font-size:18px; }
-    input,select { padding:8px; border:1px solid #aeb8c2; border-radius:4px; }
-    input { width:210px; } select { min-width:330px; max-width:45vw; }
-    button { padding:8px 12px; cursor:pointer; }
-    #matchCount { min-width:75px; color:#dceaf4; }
-    iframe { width:100%; height:calc(100vh - 60px); border:0; background:white; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Arial,Helvetica,sans-serif; background:#f4f6f8; color:#1f2933; overflow:hidden; }
+    .app { display:grid; grid-template-columns:320px 1fr; height:100vh; width:100vw; }
+    .sidebar { background:#0f172a; color:white; padding:20px 16px; overflow-y:auto; border-right:1px solid #1e293b; }
+    .sidebar h1 { font-size:22px; margin:0 0 8px; line-height:1.2; }
+    .subtitle { font-size:13px; color:#cbd5e1; margin-bottom:18px; line-height:1.45; }
+    .summary-box { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:10px 12px; margin-bottom:16px; font-size:13px; color:#e2e8f0; line-height:1.5; }
+    details { margin-top:14px; } summary { cursor:pointer; font-weight:700; font-size:15px; color:#f8fafc; margin-bottom:10px; }
+    .source-list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+    .source-link { display:block; text-decoration:none; color:#e2e8f0; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); border-radius:10px; padding:10px 11px; transition:background .15s,transform .15s; }
+    .source-link:hover { background:rgba(59,130,246,.32); transform:translateX(2px); }
+    .source-link.active { background:rgba(59,130,246,.42); border-color:rgba(147,197,253,.55); }
+    .srcid { display:block; font-size:15px; font-weight:700; margin-bottom:4px; }
+    .source-meta { display:block; font-size:12px; color:#cbd5e1; line-height:1.35; }
+    .main { height:100vh; overflow:hidden; background:#f4f6f8; } iframe { width:100%; height:100%; border:0; background:white; }
+    .entry-overlay { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(15,23,42,.82); backdrop-filter:blur(4px); }
+    .entry-card { width:min(520px,100%); background:white; border-radius:16px; padding:24px; box-shadow:0 24px 70px rgba(0,0,0,.30); }
+    .entry-card h2 { margin:0 0 8px; color:#0f172a; font-size:24px; } .entry-note { margin:0 0 18px; color:#64748b; font-size:13px; line-height:1.5; }
+    .entry-field { display:flex; flex-direction:column; gap:6px; color:#334155; font-size:13px; font-weight:600; }
+    .entry-field input { width:100%; padding:10px 11px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; }
+    .entry-range-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; } .entry-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:18px; }
+    .entry-button,.sidebar-button { border:0; border-radius:8px; padding:9px 14px; background:#2563eb; color:white; font-weight:700; cursor:pointer; } .entry-button.secondary { background:#64748b; } .sidebar-button { width:100%; margin-bottom:12px; background:#334155; font-size:12px; }
+    .entry-error { min-height:18px; margin-top:10px; color:#dc2626; font-size:13px; }
+    @media (max-width:620px) { .app { grid-template-columns:1fr; } .sidebar { max-height:42vh; } .entry-range-grid { grid-template-columns:1fr; } .entry-actions { flex-direction:column-reverse; } }
   </style>
+  <script>
+    const TOTAL_SOURCES = 331; let currentStart = 1; let currentEnd = TOTAL_SOURCES;
+    function getSourceLinks() { return Array.from(document.getElementsByClassName("source-link")); }
+    function activateLink(event) { getSourceLinks().forEach(link => link.classList.remove("active")); event.currentTarget.classList.add("active"); }
+    function applySourceRange(startNumber,endNumber) {
+      let firstVisible = null;
+      getSourceLinks().forEach(link => { const n=Number(link.dataset.sourceNumber); const visible=n>=startNumber && n<=endNumber; link.style.display=visible?"block":"none"; link.classList.remove("active"); if(visible && firstVisible===null) firstVisible=link; });
+      document.querySelectorAll(".project-group").forEach(group => { const hasVisible=Array.from(group.querySelectorAll(".source-link")).some(link=>link.style.display!=="none"); group.style.display=hasVisible?"block":"none"; });
+      if(firstVisible!==null) { firstVisible.classList.add("active"); document.getElementById("viewer_frame").src=firstVisible.href; }
+      currentStart=startNumber; currentEnd=endNumber; document.getElementById("range_summary").textContent=startNumber+"–"+endNumber+" of "+TOTAL_SOURCES;
+    }
+    function enterViewer(useDefaultRange) {
+      const errorBox=document.getElementById("entry_error"); const reviewer=document.getElementById("entry_name").value.trim();
+      if(!reviewer) { errorBox.textContent="Please enter your name."; return; }
+      let start=1,end=TOTAL_SOURCES;
+      if(!useDefaultRange) { const startText=document.getElementById("entry_start").value.trim(); const endText=document.getElementById("entry_end").value.trim(); start=startText===""?1:Number(startText); end=endText===""?TOTAL_SOURCES:Number(endText); }
+      if(!Number.isInteger(start)||!Number.isInteger(end)||start<1||end>TOTAL_SOURCES||start>end) { errorBox.textContent="Enter an integer range between 1 and "+TOTAL_SOURCES+"."; return; }
+      localStorage.setItem("blagn_check_reviewer",reviewer); document.getElementById("reviewer_summary").textContent=reviewer; applySourceRange(start,end); errorBox.textContent=""; document.getElementById("entry_overlay").style.display="none";
+    }
+    function openEntryOverlay() { const all=currentStart===1&&currentEnd===TOTAL_SOURCES; document.getElementById("entry_start").value=all?"":currentStart; document.getElementById("entry_end").value=all?"":currentEnd; document.getElementById("entry_error").textContent=""; document.getElementById("entry_overlay").style.display="flex"; document.getElementById("entry_name").focus(); }
+    window.addEventListener("DOMContentLoaded",function() { getSourceLinks().forEach(link=>link.addEventListener("click",activateLink)); document.getElementById("entry_name").value=localStorage.getItem("blagn_check_reviewer")||""; document.getElementById("entry_name").focus(); });
+  </script>
 </head>
 <body>
-  <div class="bar"><strong>BLAGN check</strong>
-    <span>331 sources</span>
-    <input id="sourceSearch" type="search" placeholder="Search source ID or srcid">
-    <select id="sourceSelect"><option value="sources/0001_GLIMPSE_9223_329380.html">GLIMPSE_9223_329380 — SNR 108.21 (1 spectra)</option><option value="sources/0002_AURORA_1914_4740.html">AURORA_1914_4740 — SNR 104.72 (3 spectra)</option><option value="sources/0003_VALENTINO_3567_793.html">VALENTINO_3567_793 — SNR 103.30 (1 spectra)</option><option value="sources/0004_MACS1149_2758_60001.html">MACS1149_2758_60001 — SNR 102.34 (2 spectra)</option><option value="sources/0005_CECILIA_2593_4.html">CECILIA_2593_4 — SNR 101.46 (2 spectra)</option><option value="sources/0006_JADES_1181_68797.html">JADES_1181_68797 — SNR 100.48 (10 spectra)</option><option value="sources/0007_AURORA_1914_26798.html">AURORA_1914_26798 — SNR 99.80 (3 spectra)</option><option value="sources/0008_BLUEJAY_1810_10314.html">BLUEJAY_1810_10314 — SNR 99.72 (3 spectra)</option><option value="sources/0009_COSMOS_1879_1295.html">COSMOS_1879_1295 — SNR 98.24 (3 spectra)</option><option value="sources/0010_AURORA_1914_921842.html">AURORA_1914_921842 — SNR 97.71 (3 spectra)</option><option value="sources/0011_MACS1149_2758_40149.html">MACS1149_2758_40149 — SNR 95.30 (2 spectra)</option><option value="sources/0012_CECILIA_2593_25.html">CECILIA_2593_25 — SNR 95.21 (2 spectra)</option><option value="sources/0013_BLUEJAY_1810_8002.html">BLUEJAY_1810_8002 — SNR 93.39 (3 spectra)</option><option value="sources/0014_LYC22_1869_2009.html">LYC22_1869_2009 — SNR 92.82 (2 spectra)</option><option value="sources/0015_AURORA_1914_8769.html">AURORA_1914_8769 — SNR 92.48 (3 spectra)</option><option value="sources/0016_AURORA_1914_927605.html">AURORA_1914_927605 — SNR 92.14 (3 spectra)</option><option value="sources/0017_GS-200679.html">GS-200679 — SNR 92.12 (3 spectra)</option><option value="sources/0018_MACS1149_2758_60003.html">MACS1149_2758_60003 — SNR 91.95 (2 spectra)</option><option value="sources/0019_BLUEJAY_1810_19945.html">BLUEJAY_1810_19945 — SNR 91.74 (3 spectra)</option><option value="sources/0020_GLASS_1324_160133.html">GLASS_1324_160133 — SNR 91.68 (4 spectra)</option><option value="sources/0021_GS-159438.html">GS-159438 — SNR 91.09 (5 spectra)</option><option value="sources/0022_EXCELS_3543_67887.html">EXCELS_3543_67887 — SNR 91.05 (1 spectra)</option><option value="sources/0023_BLUEJAY_1810_11337.html">BLUEJAY_1810_11337 — SNR 90.99 (3 spectra)</option><option value="sources/0024_BLUEJAY_1810_12148.html">BLUEJAY_1810_12148 — SNR 90.44 (3 spectra)</option><option value="sources/0025_VALENTINO_3567_53035.html">VALENTINO_3567_53035 — SNR 89.38 (1 spectra)</option><option value="sources/0026_JADES_1181_78773.html">JADES_1181_78773 — SNR 88.84 (5 spectra)</option><option value="sources/0027_JADES_1181_23924.html">JADES_1181_23924 — SNR 88.01 (4 spectra)</option><option value="sources/0028_VALENTINO_3567_217057.html">VALENTINO_3567_217057 — SNR 87.74 (1 spectra)</option><option value="sources/0029_LYC22_1869_20013.html">LYC22_1869_20013 — SNR 86.95 (2 spectra)</option><option value="sources/0030_GLIMPSE_9223_26653.html">GLIMPSE_9223_26653 — SNR 86.15 (1 spectra)</option><option value="sources/0031_LYC22_1869_20081.html">LYC22_1869_20081 — SNR 86.00 (2 spectra)</option><option value="sources/0032_JADES_1181_28074.html">JADES_1181_28074 — SNR 84.64 (4 spectra)</option><option value="sources/0033_VALENTINO_3567_10480.html">VALENTINO_3567_10480 — SNR 84.03 (1 spectra)</option><option value="sources/0034_MACS1149_1199_20024.html">MACS1149_1199_20024 — SNR 81.49 (2 spectra)</option><option value="sources/0035_JADES_1181_11836.html">JADES_1181_11836 — SNR 81.03 (5 spectra)</option><option value="sources/0036_GN-29648.html">GN-29648 — SNR 80.05 (5 spectra)</option><option value="sources/0037_BLUEJAY_1810_7102.html">BLUEJAY_1810_7102 — SNR 79.95 (3 spectra)</option><option value="sources/0038_JADES_1286_30148179.html">JADES_1286_30148179 — SNR 79.53 (9 spectra)</option><option value="sources/0039_EXCELS_3543_89922.html">EXCELS_3543_89922 — SNR 78.70 (1 spectra)</option><option value="sources/0040_JADES_1181_34145.html">JADES_1181_34145 — SNR 78.68 (4 spectra)</option><option value="sources/0041_CECILIA_2593_29.html">CECILIA_2593_29 — SNR 78.66 (2 spectra)</option><option value="sources/0042_JADES_1286_179198.html">JADES_1286_179198 — SNR 78.58 (7 spectra)</option><option value="sources/0043_GDS_1210_9515.html">GDS_1210_9515 — SNR 77.81 (5 spectra)</option><option value="sources/0044_EXCELS_3543_42268.html">EXCELS_3543_42268 — SNR 76.99 (1 spectra)</option><option value="sources/0045_RUBIES-UDS-48507.html">RUBIES-UDS-48507 — SNR 76.81 (1 spectra)</option><option value="sources/0046_CANTALUPO_1835_2044.html">CANTALUPO_1835_2044 — SNR 76.40 (1 spectra)</option><option value="sources/0047_BLUEJAY_1810_7185.html">BLUEJAY_1810_7185 — SNR 76.19 (3 spectra)</option><option value="sources/0048_GLIMPSE_9223_34789.html">GLIMPSE_9223_34789 — SNR 76.18 (2 spectra)</option><option value="sources/0049_JADES_1181_73488.html">JADES_1181_73488 — SNR 75.76 (5 spectra)</option><option value="sources/0050_BLUEJAY_1810_8280.html">BLUEJAY_1810_8280 — SNR 75.70 (3 spectra)</option><option value="sources/0051_AURORA_1914_928583.html">AURORA_1914_928583 — SNR 75.41 (3 spectra)</option><option value="sources/0052_VALENTINO_3567_51909.html">VALENTINO_3567_51909 — SNR 74.89 (1 spectra)</option><option value="sources/0053_COSMOS_4318_126891.html">COSMOS_4318_126891 — SNR 74.71 (2 spectra)</option><option value="sources/0054_JADES_1286_180575.html">JADES_1286_180575 — SNR 74.22 (6 spectra)</option><option value="sources/0055_GDN_2674_32.html">GDN_2674_32 — SNR 74.08 (1 spectra)</option><option value="sources/0056_JADES_1181_64818.html">JADES_1181_64818 — SNR 73.91 (4 spectra)</option><option value="sources/0057_RUBIES-UDS-153207.html">RUBIES-UDS-153207 — SNR 73.67 (2 spectra)</option><option value="sources/0058_RUBIES-UDS-35974.html">RUBIES-UDS-35974 — SNR 72.81 (2 spectra)</option><option value="sources/0059_CEERS-397.html">CEERS-397 — SNR 72.70 (6 spectra)</option><option value="sources/0060_EGS-34978.html">EGS-34978 — SNR 72.38 (1 spectra)</option><option value="sources/0061_VALENTINO_3567_24.html">VALENTINO_3567_24 — SNR 71.93 (1 spectra)</option><option value="sources/0062_J0910_2028_14324.html">J0910_2028_14324 — SNR 71.48 (2 spectra)</option><option value="sources/0063_AURORA_1914_6124.html">AURORA_1914_6124 — SNR 70.88 (3 spectra)</option><option value="sources/0064_RUBIES_4233_30969.html">RUBIES_4233_30969 — SNR 70.48 (1 spectra)</option><option value="sources/0065_EXCELS_3543_102901.html">EXCELS_3543_102901 — SNR 70.24 (2 spectra)</option><option value="sources/0066_RUBIES-UDS-46566.html">RUBIES-UDS-46566 — SNR 70.10 (2 spectra)</option><option value="sources/0067_EGS-952625.html">EGS-952625 — SNR 69.79 (2 spectra)</option><option value="sources/0068_GLIMPSE_9223_43084.html">GLIMPSE_9223_43084 — SNR 69.34 (1 spectra)</option><option value="sources/0069_MACS0416_4750_60003.html">MACS0416_4750_60003 — SNR 69.00 (3 spectra)</option><option value="sources/0070_JADES_1181_38147.html">JADES_1181_38147 — SNR 68.74 (6 spectra)</option><option value="sources/0071_RUBIES-UDS-46885.html">RUBIES-UDS-46885 — SNR 68.59 (1 spectra)</option><option value="sources/0072_GDS_1207_209962.html">GDS_1207_209962 — SNR 68.49 (2 spectra)</option><option value="sources/0073_RUBIES_4233_8895.html">RUBIES_4233_8895 — SNR 68.28 (2 spectra)</option><option value="sources/0074_VALENTINO_3567_18.html">VALENTINO_3567_18 — SNR 67.88 (1 spectra)</option><option value="sources/0075_JADES_1181_26194.html">JADES_1181_26194 — SNR 67.61 (5 spectra)</option><option value="sources/0076_GDS_1210_13704.html">GDS_1210_13704 — SNR 67.36 (5 spectra)</option><option value="sources/0077_JADES_1180_16375.html">JADES_1180_16375 — SNR 67.13 (4 spectra)</option><option value="sources/0078_GDN_2674_934.html">GDN_2674_934 — SNR 66.39 (1 spectra)</option><option value="sources/0079_STARK_2478_16056.html">STARK_2478_16056 — SNR 66.23 (3 spectra)</option><option value="sources/0080_RUBIES_4233_50052.html">RUBIES_4233_50052 — SNR 66.22 (3 spectra)</option><option value="sources/0081_RUBIES-UDS-22304.html">RUBIES-UDS-22304 — SNR 65.52 (1 spectra)</option><option value="sources/0082_BLUEJAY_1810_8500.html">BLUEJAY_1810_8500 — SNR 65.11 (3 spectra)</option><option value="sources/0083_GOODSN_1211_2066.html">GOODSN_1211_2066 — SNR 65.04 (3 spectra)</option><option value="sources/0084_VALENTINO_3567_54546.html">VALENTINO_3567_54546 — SNR 64.38 (2 spectra)</option><option value="sources/0085_COSMOS_1879_2342.html">COSMOS_1879_2342 — SNR 64.13 (3 spectra)</option><option value="sources/0086_MACS1149_2758_40151.html">MACS1149_2758_40151 — SNR 63.70 (2 spectra)</option><option value="sources/0087_RUBIES_4233_42046.html">RUBIES_4233_42046 — SNR 63.11 (2 spectra)</option><option value="sources/0088_GDN_4762_37583.html">GDN_4762_37583 — SNR 62.90 (2 spectra)</option><option value="sources/0089_EGS_4106_47962.html">EGS_4106_47962 — SNR 62.61 (5 spectra)</option><option value="sources/0090_CEERS_1345_1244.html">CEERS_1345_1244 — SNR 62.43 (4 spectra)</option><option value="sources/0091_VALENTINO_3567_51372.html">VALENTINO_3567_51372 — SNR 62.13 (1 spectra)</option><option value="sources/0092_EXCELS_3543_51825.html">EXCELS_3543_51825 — SNR 62.10 (2 spectra)</option><option value="sources/0093_MACS1149_2758_150337.html">MACS1149_2758_150337 — SNR 61.93 (2 spectra)</option><option value="sources/0094_JADES_1181_28746.html">JADES_1181_28746 — SNR 61.83 (5 spectra)</option><option value="sources/0095_RUBIES_4233_174752.html">RUBIES_4233_174752 — SNR 61.63 (2 spectra)</option><option value="sources/0096_JADES_1286_38562.html">JADES_1286_38562 — SNR 61.63 (5 spectra)</option><option value="sources/0097_AURORA_1914_100182.html">AURORA_1914_100182 — SNR 61.13 (3 spectra)</option><option value="sources/0098_VALENTINO_3567_54545.html">VALENTINO_3567_54545 — SNR 60.65 (2 spectra)</option><option value="sources/0099_VALENTINO_3567_1552.html">VALENTINO_3567_1552 — SNR 60.01 (1 spectra)</option><option value="sources/0100_JADES_1181_53501.html">JADES_1181_53501 — SNR 59.94 (10 spectra)</option><option value="sources/0101_RUBIES_4233_182791.html">RUBIES_4233_182791 — SNR 59.74 (2 spectra)</option><option value="sources/0102_RUBIES_4233_45502.html">RUBIES_4233_45502 — SNR 59.58 (2 spectra)</option><option value="sources/0103_VALENTINO_3567_45518.html">VALENTINO_3567_45518 — SNR 59.36 (1 spectra)</option><option value="sources/0104_GS-9598.html">GS-9598 — SNR 59.04 (4 spectra)</option><option value="sources/0105_VALENTINO_3567_136272.html">VALENTINO_3567_136272 — SNR 58.89 (3 spectra)</option><option value="sources/0106_RUBIES-EGS-920.html">RUBIES-EGS-920 — SNR 58.80 (2 spectra)</option><option value="sources/0107_GLIMPSE_9223_46938.html">GLIMPSE_9223_46938 — SNR 58.65 (1 spectra)</option><option value="sources/0108_GTO_1215_6001.html">GTO_1215_6001 — SNR 58.22 (3 spectra)</option><option value="sources/0109_JADES_1180_13520.html">JADES_1180_13520 — SNR 58.06 (4 spectra)</option><option value="sources/0110_UDS-143683.html">UDS-143683 — SNR 58.03 (2 spectra)</option><option value="sources/0111_BLUEJAY_1810_19705.html">BLUEJAY_1810_19705 — SNR 57.74 (3 spectra)</option><option value="sources/0112_VALENTINO_3567_1369.html">VALENTINO_3567_1369 — SNR 57.52 (1 spectra)</option><option value="sources/0113_JADES_1180_44271.html">JADES_1180_44271 — SNR 57.32 (4 spectra)</option><option value="sources/0114_SUSPENSE_2110_130647.html">SUSPENSE_2110_130647 — SNR 57.24 (1 spectra)</option><option value="sources/0115_MACS0416_4750_50001.html">MACS0416_4750_50001 — SNR 56.57 (2 spectra)</option><option value="sources/0116_RUBIES_4233_47509.html">RUBIES_4233_47509 — SNR 56.06 (2 spectra)</option><option value="sources/0117_UDS-920396.html">UDS-920396 — SNR 56.04 (3 spectra)</option><option value="sources/0118_BLUEJAY_1810_19891.html">BLUEJAY_1810_19891 — SNR 55.80 (3 spectra)</option><option value="sources/0119_JADES_1180_7384.html">JADES_1180_7384 — SNR 55.79 (4 spectra)</option><option value="sources/0120_RUBIES_4233_28812.html">RUBIES_4233_28812 — SNR 55.77 (4 spectra)</option><option value="sources/0121_J0910_2028_14306.html">J0910_2028_14306 — SNR 55.56 (2 spectra)</option><option value="sources/0122_J0226_3325_1884.html">J0226_3325_1884 — SNR 55.43 (1 spectra)</option><option value="sources/0123_VALENTINO_3567_4301.html">VALENTINO_3567_4301 — SNR 55.17 (1 spectra)</option><option value="sources/0124_VALENTINO_3567_44021.html">VALENTINO_3567_44021 — SNR 54.82 (4 spectra)</option><option value="sources/0125_GLIMPSE_9223_11026.html">GLIMPSE_9223_11026 — SNR 54.62 (1 spectra)</option><option value="sources/0126_GDS_1671_37005.html">GDS_1671_37005 — SNR 54.50 (2 spectra)</option><option value="sources/0127_JADES_1180_5807.html">JADES_1180_5807 — SNR 54.46 (4 spectra)</option><option value="sources/0128_JADES_1181_27887.html">JADES_1181_27887 — SNR 53.75 (5 spectra)</option><option value="sources/0129_RUBIES_4233_24210.html">RUBIES_4233_24210 — SNR 53.56 (2 spectra)</option><option value="sources/0130_JADES_1286_159717.html">JADES_1286_159717 — SNR 53.47 (5 spectra)</option><option value="sources/0131_GDN_4762_16620.html">GDN_4762_16620 — SNR 53.40 (2 spectra)</option><option value="sources/0132_GN-62309.html">GN-62309 — SNR 53.22 (5 spectra)</option><option value="sources/0133_VALENTINO_3567_3285.html">VALENTINO_3567_3285 — SNR 52.36 (1 spectra)</option><option value="sources/0134_VALENTINO_3567_20910.html">VALENTINO_3567_20910 — SNR 51.85 (1 spectra)</option><option value="sources/0135_CEERS-11728.html">CEERS-11728 — SNR 51.85 (4 spectra)</option><option value="sources/0136_JADES_1180_209777.html">JADES_1180_209777 — SNR 51.74 (4 spectra)</option><option value="sources/0137_BLUEJAY_1810_12020.html">BLUEJAY_1810_12020 — SNR 51.61 (3 spectra)</option><option value="sources/0138_JADES_1181_2331.html">JADES_1181_2331 — SNR 51.30 (4 spectra)</option><option value="sources/0139_JADES_1286_204851.html">JADES_1286_204851 — SNR 51.28 (5 spectra)</option><option value="sources/0140_LYC22_1869_4096.html">LYC22_1869_4096 — SNR 51.26 (2 spectra)</option><option value="sources/0141_RUBIES_4233_41926.html">RUBIES_4233_41926 — SNR 51.16 (1 spectra)</option><option value="sources/0142_JADES_1181_954.html">JADES_1181_954 — SNR 51.02 (4 spectra)</option><option value="sources/0143_EGS_4106_71365.html">EGS_4106_71365 — SNR 50.33 (2 spectra)</option><option value="sources/0144_JADES_1181_721.html">JADES_1181_721 — SNR 49.80 (5 spectra)</option><option value="sources/0145_MACS0416_4750_60009.html">MACS0416_4750_60009 — SNR 49.68 (3 spectra)</option><option value="sources/0146_EXCELS_3543_34495.html">EXCELS_3543_34495 — SNR 49.61 (3 spectra)</option><option value="sources/0147_GTO_1215_4446.html">GTO_1215_4446 — SNR 49.59 (3 spectra)</option><option value="sources/0148_GDN_2674_14.html">GDN_2674_14 — SNR 49.35 (1 spectra)</option><option value="sources/0149_RUBIES_4233_49140.html">RUBIES_4233_49140 — SNR 49.28 (5 spectra)</option><option value="sources/0150_GDN_4762_36344.html">GDN_4762_36344 — SNR 49.06 (2 spectra)</option><option value="sources/0151_GDN_2674_3761.html">GDN_2674_3761 — SNR 48.97 (1 spectra)</option><option value="sources/0152_GTO_1215_4909.html">GTO_1215_4909 — SNR 48.95 (3 spectra)</option><option value="sources/0153_GOODSN_1211_5243.html">GOODSN_1211_5243 — SNR 48.94 (3 spectra)</option><option value="sources/0154_RUBIES_4233_19521.html">RUBIES_4233_19521 — SNR 48.25 (4 spectra)</option><option value="sources/0155_EGS-70473.html">EGS-70473 — SNR 48.00 (1 spectra)</option><option value="sources/0156_UDS-154183.html">UDS-154183 — SNR 47.88 (2 spectra)</option><option value="sources/0157_GTO_1215_1472.html">GTO_1215_1472 — SNR 47.57 (3 spectra)</option><option value="sources/0158_JADES_1181_2916.html">JADES_1181_2916 — SNR 46.70 (4 spectra)</option><option value="sources/0159_RUBIES_4233_60935.html">RUBIES_4233_60935 — SNR 46.55 (2 spectra)</option><option value="sources/0160_UDS-961025.html">UDS-961025 — SNR 46.44 (2 spectra)</option><option value="sources/0161_RUBIES-EGS-19174.html">RUBIES-EGS-19174 — SNR 46.20 (2 spectra)</option><option value="sources/0162_EGS-17301.html">EGS-17301 — SNR 45.84 (3 spectra)</option><option value="sources/0163_EGS_4106_51623.html">EGS_4106_51623 — SNR 45.84 (2 spectra)</option><option value="sources/0164_JADES_1180_17341.html">JADES_1180_17341 — SNR 45.77 (4 spectra)</option><option value="sources/0165_EXCELS_3543_112990.html">EXCELS_3543_112990 — SNR 45.65 (3 spectra)</option><option value="sources/0166_JADES_1181_61888.html">JADES_1181_61888 — SNR 45.59 (5 spectra)</option><option value="sources/0167_RUBIES_4233_119957.html">RUBIES_4233_119957 — SNR 45.20 (2 spectra)</option><option value="sources/0168_RUBIES_4233_926125.html">RUBIES_4233_926125 — SNR 45.03 (2 spectra)</option><option value="sources/0169_UDS-53452.html">UDS-53452 — SNR 44.90 (2 spectra)</option><option value="sources/0170_VALENTINO_3567_55536.html">VALENTINO_3567_55536 — SNR 44.79 (2 spectra)</option><option value="sources/0171_JADES_1181_53757.html">JADES_1181_53757 — SNR 44.76 (7 spectra)</option><option value="sources/0172_BLUEJAY_1810_18977.html">BLUEJAY_1810_18977 — SNR 43.90 (3 spectra)</option><option value="sources/0173_EGS-966323.html">EGS-966323 — SNR 43.89 (7 spectra)</option><option value="sources/0174_RUBIES_4233_29813.html">RUBIES_4233_29813 — SNR 43.85 (2 spectra)</option><option value="sources/0175_JADES_1180_13329.html">JADES_1180_13329 — SNR 43.85 (4 spectra)</option><option value="sources/0176_GDS_1207_208030.html">GDS_1207_208030 — SNR 43.74 (2 spectra)</option><option value="sources/0177_MACS1149_1199_80002.html">MACS1149_1199_80002 — SNR 43.70 (1 spectra)</option><option value="sources/0178_RUBIES_4233_42232.html">RUBIES_4233_42232 — SNR 43.45 (5 spectra)</option><option value="sources/0179_BLUEJAY_1810_18668.html">BLUEJAY_1810_18668 — SNR 43.20 (3 spectra)</option><option value="sources/0180_GDN_4762_33609.html">GDN_4762_33609 — SNR 42.86 (2 spectra)</option><option value="sources/0181_MACS1149_2758_150471.html">MACS1149_2758_150471 — SNR 42.63 (2 spectra)</option><option value="sources/0182_RUBIES_4233_172350.html">RUBIES_4233_172350 — SNR 42.23 (2 spectra)</option><option value="sources/0183_GTO_1215_3470.html">GTO_1215_3470 — SNR 41.83 (3 spectra)</option><option value="sources/0184_RUBIES-EGS-50812.html">RUBIES-EGS-50812 — SNR 41.62 (2 spectra)</option><option value="sources/0185_RUBIES-UDS-11721.html">RUBIES-UDS-11721 — SNR 41.29 (2 spectra)</option><option value="sources/0186_RUBIES_4233_54059.html">RUBIES_4233_54059 — SNR 41.23 (2 spectra)</option><option value="sources/0187_VALENTINO_3567_40904.html">VALENTINO_3567_40904 — SNR 41.11 (1 spectra)</option><option value="sources/0188_JADES_1181_20621.html">JADES_1181_20621 — SNR 40.76 (5 spectra)</option><option value="sources/0189_UDS-14947.html">UDS-14947 — SNR 40.65 (2 spectra)</option><option value="sources/0190_JADES_1180_10013268.html">JADES_1180_10013268 — SNR 40.46 (4 spectra)</option><option value="sources/0191_BLUEJAY_1810_19572.html">BLUEJAY_1810_19572 — SNR 40.44 (3 spectra)</option><option value="sources/0192_RUBIES_4233_13872.html">RUBIES_4233_13872 — SNR 40.23 (2 spectra)</option><option value="sources/0193_RUBIES_4233_6411.html">RUBIES_4233_6411 — SNR 40.11 (2 spectra)</option><option value="sources/0194_JADES_1181_77652.html">JADES_1181_77652 — SNR 40.10 (5 spectra)</option><option value="sources/0195_RUBIES_4233_55604.html">RUBIES_4233_55604 — SNR 39.93 (2 spectra)</option><option value="sources/0196_JADES_1181_29711.html">JADES_1181_29711 — SNR 39.30 (4 spectra)</option><option value="sources/0197_CEERS_1345_2782.html">CEERS_1345_2782 — SNR 39.01 (4 spectra)</option><option value="sources/0198_RUBIES_4233_42658.html">RUBIES_4233_42658 — SNR 38.98 (1 spectra)</option><option value="sources/0199_RUBIES_4233_807469.html">RUBIES_4233_807469 — SNR 38.93 (2 spectra)</option><option value="sources/0200_EGS-53254.html">EGS-53254 — SNR 38.90 (3 spectra)</option><option value="sources/0201_UDS-144195.html">UDS-144195 — SNR 38.89 (2 spectra)</option><option value="sources/0202_GN-38509.html">GN-38509 — SNR 38.81 (4 spectra)</option><option value="sources/0203_RUBIES_4233_150323.html">RUBIES_4233_150323 — SNR 38.76 (1 spectra)</option><option value="sources/0204_J0226_3325_9556.html">J0226_3325_9556 — SNR 38.30 (1 spectra)</option><option value="sources/0205_JADES_1181_1093.html">JADES_1181_1093 — SNR 38.23 (5 spectra)</option><option value="sources/0206_AURORA_1914_5469.html">AURORA_1914_5469 — SNR 38.02 (3 spectra)</option><option value="sources/0207_JADES_1180_107700.html">JADES_1180_107700 — SNR 37.73 (6 spectra)</option><option value="sources/0208_RUBIES_4233_925921.html">RUBIES_4233_925921 — SNR 37.62 (2 spectra)</option><option value="sources/0209_RUBIES-EGS-17146.html">RUBIES-EGS-17146 — SNR 37.15 (3 spectra)</option><option value="sources/0210_VALENTINO_3567_44330.html">VALENTINO_3567_44330 — SNR 37.01 (1 spectra)</option><option value="sources/0211_RUBIES_4233_17604.html">RUBIES_4233_17604 — SNR 36.86 (1 spectra)</option><option value="sources/0212_VALENTINO_3567_71.html">VALENTINO_3567_71 — SNR 36.66 (1 spectra)</option><option value="sources/0213_RUBIES_4233_10036.html">RUBIES_4233_10036 — SNR 36.50 (2 spectra)</option><option value="sources/0214_J0226_3325_10867.html">J0226_3325_10867 — SNR 36.33 (1 spectra)</option><option value="sources/0215_BLUEJAY_1810_17000.html">BLUEJAY_1810_17000 — SNR 36.31 (3 spectra)</option><option value="sources/0216_JADES_1286_37746.html">JADES_1286_37746 — SNR 36.30 (5 spectra)</option><option value="sources/0217_RUBIES_4233_41683.html">RUBIES_4233_41683 — SNR 36.00 (1 spectra)</option><option value="sources/0218_VALENTINO_3567_406.html">VALENTINO_3567_406 — SNR 35.67 (1 spectra)</option><option value="sources/0219_RUBIES_4233_61627.html">RUBIES_4233_61627 — SNR 35.61 (2 spectra)</option><option value="sources/0220_GDS_1207_201027.html">GDS_1207_201027 — SNR 35.47 (2 spectra)</option><option value="sources/0221_RUBIES_4233_31747.html">RUBIES_4233_31747 — SNR 35.39 (2 spectra)</option><option value="sources/0222_RUBIES_4233_147412.html">RUBIES_4233_147412 — SNR 35.37 (3 spectra)</option><option value="sources/0223_EGS-927271.html">EGS-927271 — SNR 35.18 (2 spectra)</option><option value="sources/0224_UDS-19112.html">UDS-19112 — SNR 35.05 (2 spectra)</option><option value="sources/0225_RUBIES_4233_139709.html">RUBIES_4233_139709 — SNR 34.98 (2 spectra)</option><option value="sources/0226_UDS-5496.html">UDS-5496 — SNR 34.42 (2 spectra)</option><option value="sources/0227_RUBIES_4233_37124.html">RUBIES_4233_37124 — SNR 33.91 (2 spectra)</option><option value="sources/0228_RUBIES_4233_58237.html">RUBIES_4233_58237 — SNR 33.91 (3 spectra)</option><option value="sources/0229_UDS-149298.html">UDS-149298 — SNR 33.87 (3 spectra)</option><option value="sources/0230_EGS_4287_127193.html">EGS_4287_127193 — SNR 33.10 (2 spectra)</option><option value="sources/0231_UDS-42289.html">UDS-42289 — SNR 32.96 (2 spectra)</option><option value="sources/0232_JADES_1181_23367.html">JADES_1181_23367 — SNR 32.95 (4 spectra)</option><option value="sources/0233_RUBIES_4233_29489.html">RUBIES_4233_29489 — SNR 32.04 (3 spectra)</option><option value="sources/0234_UDS-44043.html">UDS-44043 — SNR 31.94 (1 spectra)</option><option value="sources/0235_UDS-167741.html">UDS-167741 — SNR 31.55 (2 spectra)</option><option value="sources/0236_RUBIES_4233_48449.html">RUBIES_4233_48449 — SNR 30.88 (2 spectra)</option><option value="sources/0237_JADES_1181_22456.html">JADES_1181_22456 — SNR 30.82 (7 spectra)</option><option value="sources/0238_RUBIES-EGS-46985.html">RUBIES-EGS-46985 — SNR 30.59 (2 spectra)</option><option value="sources/0239_RUBIES_4233_148866.html">RUBIES_4233_148866 — SNR 30.58 (2 spectra)</option><option value="sources/0240_RUBIES_4233_25712.html">RUBIES_4233_25712 — SNR 30.50 (2 spectra)</option><option value="sources/0241_UDS-23438.html">UDS-23438 — SNR 30.40 (2 spectra)</option><option value="sources/0242_JADES_1286_172975.html">JADES_1286_172975 — SNR 29.90 (5 spectra)</option><option value="sources/0243_UDS-171824.html">UDS-171824 — SNR 29.70 (2 spectra)</option><option value="sources/0244_JADES_1181_28428.html">JADES_1181_28428 — SNR 29.69 (5 spectra)</option><option value="sources/0245_UDS-143498.html">UDS-143498 — SNR 29.50 (1 spectra)</option><option value="sources/0246_GS-20030333.html">GS-20030333 — SNR 29.07 (5 spectra)</option><option value="sources/0247_EGS-931291.html">EGS-931291 — SNR 28.54 (3 spectra)</option><option value="sources/0248_JADES_1181_39353.html">JADES_1181_39353 — SNR 28.29 (6 spectra)</option><option value="sources/0249_COSMOS_4318_126981.html">COSMOS_4318_126981 — SNR 28.08 (2 spectra)</option><option value="sources/0250_BLUEJAY_1810_18688.html">BLUEJAY_1810_18688 — SNR 27.61 (3 spectra)</option><option value="sources/0251_RUBIES-UDS-19484.html">RUBIES-UDS-19484 — SNR 27.60 (2 spectra)</option><option value="sources/0252_J0226_3325_6699.html">J0226_3325_6699 — SNR 27.38 (1 spectra)</option><option value="sources/0253_VALENTINO_3567_262.html">VALENTINO_3567_262 — SNR 26.15 (1 spectra)</option><option value="sources/0254_GOODSN_1211_4151.html">GOODSN_1211_4151 — SNR 26.11 (3 spectra)</option><option value="sources/0255_RUBIES_4233_61496.html">RUBIES_4233_61496 — SNR 25.37 (2 spectra)</option><option value="sources/0256_RUBIES_4233_37032.html">RUBIES_4233_37032 — SNR 25.35 (2 spectra)</option><option value="sources/0257_MACS0416_4750_22011.html">MACS0416_4750_22011 — SNR 24.70 (2 spectra)</option><option value="sources/0258_J0226_3325_3190.html">J0226_3325_3190 — SNR 24.08 (1 spectra)</option><option value="sources/0259_RUBIES_4233_15825.html">RUBIES_4233_15825 — SNR 23.85 (2 spectra)</option><option value="sources/0260_UDS-919440.html">UDS-919440 — SNR 23.47 (3 spectra)</option><option value="sources/0261_EGS-959367.html">EGS-959367 — SNR 23.25 (4 spectra)</option><option value="sources/0262_JADES_1180_197911.html">JADES_1180_197911 — SNR 23.18 (5 spectra)</option><option value="sources/0263_GTO_1215_4250.html">GTO_1215_4250 — SNR 21.95 (3 spectra)</option><option value="sources/0264_UDS-966096.html">UDS-966096 — SNR 21.76 (2 spectra)</option><option value="sources/0265_GTO_1215_3757.html">GTO_1215_3757 — SNR 21.46 (3 spectra)</option><option value="sources/0266_UDS-840721.html">UDS-840721 — SNR 20.97 (2 spectra)</option><option value="sources/0267_CEERS_1345_746.html">CEERS_1345_746 — SNR 20.97 (4 spectra)</option><option value="sources/0268_UDS-143741.html">UDS-143741 — SNR 20.79 (2 spectra)</option><option value="sources/0269_UDS-24447.html">UDS-24447 — SNR 20.43 (2 spectra)</option><option value="sources/0270_UDS-848745.html">UDS-848745 — SNR 20.29 (2 spectra)</option><option value="sources/0271_JADES_1181_72127.html">JADES_1181_72127 — SNR 19.39 (5 spectra)</option><option value="sources/0272_UDS-19785.html">UDS-19785 — SNR 19.34 (1 spectra)</option><option value="sources/0273_UDS-34411.html">UDS-34411 — SNR 19.29 (2 spectra)</option><option value="sources/0274_J0910_2028_12910.html">J0910_2028_12910 — SNR 19.25 (2 spectra)</option><option value="sources/0275_GOODSN_1211_2460.html">GOODSN_1211_2460 — SNR 18.90 (3 spectra)</option><option value="sources/0276_RUBIES_4233_50522.html">RUBIES_4233_50522 — SNR 18.74 (2 spectra)</option><option value="sources/0277_CEERS-672.html">CEERS-672 — SNR 18.61 (3 spectra)</option><option value="sources/0278_RUBIES_4233_166271.html">RUBIES_4233_166271 — SNR 18.59 (2 spectra)</option><option value="sources/0279_RUBIES_4233_42803.html">RUBIES_4233_42803 — SNR 18.21 (3 spectra)</option><option value="sources/0280_RUBIES-UDS-18302.html">RUBIES-UDS-18302 — SNR 18.12 (2 spectra)</option><option value="sources/0281_JADES_1180_6112.html">JADES_1180_6112 — SNR 17.83 (5 spectra)</option><option value="sources/0282_RUBIES_4233_970351.html">RUBIES_4233_970351 — SNR 17.27 (2 spectra)</option><option value="sources/0283_SUSPENSE_2110_128452.html">SUSPENSE_2110_128452 — SNR 17.17 (1 spectra)</option><option value="sources/0284_VALENTINO_3567_1546.html">VALENTINO_3567_1546 — SNR 17.17 (1 spectra)</option><option value="sources/0285_GS-20057765.html">GS-20057765 — SNR 17.16 (5 spectra)</option><option value="sources/0286_UDS-60452.html">UDS-60452 — SNR 17.10 (1 spectra)</option><option value="sources/0287_CEERS_1345_2904.html">CEERS_1345_2904 — SNR 16.89 (3 spectra)</option><option value="sources/0288_JADES_1181_25055.html">JADES_1181_25055 — SNR 16.86 (5 spectra)</option><option value="sources/0289_RUBIES_4233_16053.html">RUBIES_4233_16053 — SNR 16.78 (2 spectra)</option><option value="sources/0290_GTO_1213_9063.html">GTO_1213_9063 — SNR 16.24 (4 spectra)</option><option value="sources/0291_EGS_4106_57146.html">EGS_4106_57146 — SNR 16.21 (2 spectra)</option><option value="sources/0292_BLUEJAY_1810_11142.html">BLUEJAY_1810_11142 — SNR 16.13 (3 spectra)</option><option value="sources/0293_GTO_1214_2937.html">GTO_1214_2937 — SNR 16.02 (3 spectra)</option><option value="sources/0294_RUBIES_4233_119559.html">RUBIES_4233_119559 — SNR 15.73 (2 spectra)</option><option value="sources/0295_GOODSN_1211_4319.html">GOODSN_1211_4319 — SNR 15.54 (3 spectra)</option><option value="sources/0296_UDS-830237.html">UDS-830237 — SNR 15.38 (4 spectra)</option><option value="sources/0297_SUSPENSE_2110_130040.html">SUSPENSE_2110_130040 — SNR 15.07 (1 spectra)</option><option value="sources/0298_EXCELS_3543_69759.html">EXCELS_3543_69759 — SNR 14.78 (1 spectra)</option><option value="sources/0299_RUBIES_4233_50716.html">RUBIES_4233_50716 — SNR 14.60 (2 spectra)</option><option value="sources/0300_MACS1149_2758_30028.html">MACS1149_2758_30028 — SNR 14.50 (2 spectra)</option><option value="sources/0301_RUBIES-UDS-155916.html">RUBIES-UDS-155916 — SNR 14.41 (2 spectra)</option><option value="sources/0302_GOODSN_1211_1795.html">GOODSN_1211_1795 — SNR 14.39 (3 spectra)</option><option value="sources/0303_RUBIES-UDS-21944.html">RUBIES-UDS-21944 — SNR 13.71 (2 spectra)</option><option value="sources/0304_GTO_1214_1158.html">GTO_1214_1158 — SNR 13.55 (6 spectra)</option><option value="sources/0305_EGS-46724.html">EGS-46724 — SNR 13.00 (4 spectra)</option><option value="sources/0306_UDS-53692.html">UDS-53692 — SNR 12.59 (2 spectra)</option><option value="sources/0307_RUBIES_4233_150987.html">RUBIES_4233_150987 — SNR 11.68 (2 spectra)</option><option value="sources/0308_VALENTINO_3567_5276.html">VALENTINO_3567_5276 — SNR 11.51 (1 spectra)</option><option value="sources/0309_UDS-41571.html">UDS-41571 — SNR 11.35 (2 spectra)</option><option value="sources/0310_GS-164055.html">GS-164055 — SNR 11.29 (5 spectra)</option><option value="sources/0311_RUBIES-UDS-146995.html">RUBIES-UDS-146995 — SNR 11.03 (2 spectra)</option><option value="sources/0312_UDS-916674.html">UDS-916674 — SNR 10.97 (2 spectra)</option><option value="sources/0313_VALENTINO_3567_40442.html">VALENTINO_3567_40442 — SNR 10.73 (3 spectra)</option><option value="sources/0314_RUBIES_4233_160366.html">RUBIES_4233_160366 — SNR 10.29 (2 spectra)</option><option value="sources/0315_GLIMPSE_9223_5536.html">GLIMPSE_9223_5536 — SNR 10.13 (1 spectra)</option><option value="sources/0316_UDS-33938.html">UDS-33938 — SNR 9.78 (4 spectra)</option><option value="sources/0317_UDS-981721.html">UDS-981721 — SNR 8.95 (5 spectra)</option><option value="sources/0318_GN-4685.html">GN-4685 — SNR 8.85 (5 spectra)</option><option value="sources/0319_GTO_1213_3848.html">GTO_1213_3848 — SNR 8.80 (3 spectra)</option><option value="sources/0320_GTO_1215_3088.html">GTO_1215_3088 — SNR 8.59 (5 spectra)</option><option value="sources/0321_UDS-967770.html">UDS-967770 — SNR 7.04 (2 spectra)</option><option value="sources/0322_EXCELS_3543_113667.html">EXCELS_3543_113667 — SNR 6.44 (3 spectra)</option><option value="sources/0323_RUBIES-EGS-45599.html">RUBIES-EGS-45599 — SNR 6.16 (1 spectra)</option><option value="sources/0324_UDS-36171.html">UDS-36171 — SNR 6.05 (2 spectra)</option><option value="sources/0325_BLUEJAY_1810_16419.html">BLUEJAY_1810_16419 — SNR 5.86 (3 spectra)</option><option value="sources/0326_EXCELS_3543_98447.html">EXCELS_3543_98447 — SNR N/A (1 spectra)</option><option value="sources/0327_GS-210600.html">GS-210600 — SNR N/A (0 spectra)</option><option value="sources/0328_RUBIES-UDS-147411.html">RUBIES-UDS-147411 — SNR N/A (0 spectra)</option><option value="sources/0329_RUBIES-UDS-63139.html">RUBIES-UDS-63139 — SNR N/A (1 spectra)</option><option value="sources/0330_UDS-40579.html">UDS-40579 — SNR N/A (4 spectra)</option><option value="sources/0331_UDS-57040.html">UDS-57040 — SNR N/A (0 spectra)</option></select>
-    <span id="matchCount">331 matches</span>
-    <button onclick="openSelected()">Open source</button>
-  </div>
-  <iframe id="viewer" src="sources/0001_GLIMPSE_9223_329380.html"></iframe>
-  <script>
-    const sourceSelect = document.getElementById('sourceSelect');
-    const sourceSearch = document.getElementById('sourceSearch');
-    const matchCount = document.getElementById('matchCount');
-    const allSources = Array.from(sourceSelect.options).map(option => ({
-      value: option.value,
-      text: option.textContent
-    }));
-
-    function openSelected() {
-      if (sourceSelect.value) {
-        document.getElementById('viewer').src = sourceSelect.value;
-      }
-    }
-
-    function filterSources() {
-      const query = sourceSearch.value.trim().toLowerCase();
-      const matches = allSources.filter(source =>
-        source.text.toLowerCase().includes(query)
-      );
-
-      sourceSelect.replaceChildren();
-      for (const source of matches) {
-        const option = document.createElement('option');
-        option.value = source.value;
-        option.textContent = source.text;
-        sourceSelect.appendChild(option);
-      }
-
-      matchCount.textContent = matches.length + (matches.length === 1 ? ' match' : ' matches');
-    }
-
-    sourceSearch.addEventListener('input', filterSources);
-    sourceSearch.addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        openSelected();
-      }
-    });
-    sourceSelect.addEventListener('change', openSelected);
-  </script>
+  <div id="entry_overlay" class="entry-overlay"><div class="entry-card"><h2>Open BLAGN check</h2><p class="entry-note">Enter your name and choose an inclusive source range. Leave both range fields blank to show all 331 sources.</p><label class="entry-field">Name<input id="entry_name" type="text" autocomplete="name" placeholder="Your name"></label><div class="entry-range-grid"><label class="entry-field">Start source<input id="entry_start" type="number" min="1" max="331" step="1" placeholder="1"></label><label class="entry-field">End source<input id="entry_end" type="number" min="1" max="331" step="1" placeholder="331"></label></div><div id="entry_error" class="entry-error"></div><div class="entry-actions"><button class="entry-button secondary" type="button" onclick="enterViewer(true)">Default: all sources</button><button class="entry-button" type="button" onclick="enterViewer(false)">Enter viewer</button></div></div></div>
+  <div class="app"><aside class="sidebar"><h1>BLAGN check</h1><div class="subtitle">Review the BLAGN spectra and add a free-text evaluation where needed.</div><div class="summary-box">Total sources: 331<br>Reviewer: <span id="reviewer_summary">not entered</span><br>Showing: <span id="range_summary">waiting for selection</span><br>Open <b>index.html</b> to browse.</div><button class="sidebar-button" type="button" onclick="openEntryOverlay()">Change name or range</button><details class="project-group" open><summary>AURORA (9)</summary><div class="source-list"><a class="source-link" href="sources/0002_AURORA_1914_4740.html" target="viewer" data-source-number="2">
+          <span class="srcid">#2 · AURORA_1914_4740</span>
+          <span class="source-meta">3 spectra · max SNR 104.72</span>
+        </a><a class="source-link" href="sources/0007_AURORA_1914_26798.html" target="viewer" data-source-number="7">
+          <span class="srcid">#7 · AURORA_1914_26798</span>
+          <span class="source-meta">3 spectra · max SNR 99.80</span>
+        </a><a class="source-link" href="sources/0010_AURORA_1914_921842.html" target="viewer" data-source-number="10">
+          <span class="srcid">#10 · AURORA_1914_921842</span>
+          <span class="source-meta">3 spectra · max SNR 97.71</span>
+        </a><a class="source-link" href="sources/0015_AURORA_1914_8769.html" target="viewer" data-source-number="15">
+          <span class="srcid">#15 · AURORA_1914_8769</span>
+          <span class="source-meta">3 spectra · max SNR 92.48</span>
+        </a><a class="source-link" href="sources/0016_AURORA_1914_927605.html" target="viewer" data-source-number="16">
+          <span class="srcid">#16 · AURORA_1914_927605</span>
+          <span class="source-meta">3 spectra · max SNR 92.14</span>
+        </a><a class="source-link" href="sources/0051_AURORA_1914_928583.html" target="viewer" data-source-number="51">
+          <span class="srcid">#51 · AURORA_1914_928583</span>
+          <span class="source-meta">3 spectra · max SNR 75.41</span>
+        </a><a class="source-link" href="sources/0063_AURORA_1914_6124.html" target="viewer" data-source-number="63">
+          <span class="srcid">#63 · AURORA_1914_6124</span>
+          <span class="source-meta">3 spectra · max SNR 70.88</span>
+        </a><a class="source-link" href="sources/0097_AURORA_1914_100182.html" target="viewer" data-source-number="97">
+          <span class="srcid">#97 · AURORA_1914_100182</span>
+          <span class="source-meta">3 spectra · max SNR 61.13</span>
+        </a><a class="source-link" href="sources/0206_AURORA_1914_5469.html" target="viewer" data-source-number="206">
+          <span class="srcid">#206 · AURORA_1914_5469</span>
+          <span class="source-meta">3 spectra · max SNR 38.02</span>
+        </a></div></details>
+<details class="project-group" open><summary>BLUEJAY (19)</summary><div class="source-list"><a class="source-link" href="sources/0008_BLUEJAY_1810_10314.html" target="viewer" data-source-number="8">
+          <span class="srcid">#8 · BLUEJAY_1810_10314</span>
+          <span class="source-meta">3 spectra · max SNR 99.72</span>
+        </a><a class="source-link" href="sources/0013_BLUEJAY_1810_8002.html" target="viewer" data-source-number="13">
+          <span class="srcid">#13 · BLUEJAY_1810_8002</span>
+          <span class="source-meta">3 spectra · max SNR 93.39</span>
+        </a><a class="source-link" href="sources/0019_BLUEJAY_1810_19945.html" target="viewer" data-source-number="19">
+          <span class="srcid">#19 · BLUEJAY_1810_19945</span>
+          <span class="source-meta">3 spectra · max SNR 91.74</span>
+        </a><a class="source-link" href="sources/0023_BLUEJAY_1810_11337.html" target="viewer" data-source-number="23">
+          <span class="srcid">#23 · BLUEJAY_1810_11337</span>
+          <span class="source-meta">3 spectra · max SNR 90.99</span>
+        </a><a class="source-link" href="sources/0024_BLUEJAY_1810_12148.html" target="viewer" data-source-number="24">
+          <span class="srcid">#24 · BLUEJAY_1810_12148</span>
+          <span class="source-meta">3 spectra · max SNR 90.44</span>
+        </a><a class="source-link" href="sources/0037_BLUEJAY_1810_7102.html" target="viewer" data-source-number="37">
+          <span class="srcid">#37 · BLUEJAY_1810_7102</span>
+          <span class="source-meta">3 spectra · max SNR 79.95</span>
+        </a><a class="source-link" href="sources/0047_BLUEJAY_1810_7185.html" target="viewer" data-source-number="47">
+          <span class="srcid">#47 · BLUEJAY_1810_7185</span>
+          <span class="source-meta">3 spectra · max SNR 76.19</span>
+        </a><a class="source-link" href="sources/0050_BLUEJAY_1810_8280.html" target="viewer" data-source-number="50">
+          <span class="srcid">#50 · BLUEJAY_1810_8280</span>
+          <span class="source-meta">3 spectra · max SNR 75.70</span>
+        </a><a class="source-link" href="sources/0082_BLUEJAY_1810_8500.html" target="viewer" data-source-number="82">
+          <span class="srcid">#82 · BLUEJAY_1810_8500</span>
+          <span class="source-meta">3 spectra · max SNR 65.11</span>
+        </a><a class="source-link" href="sources/0111_BLUEJAY_1810_19705.html" target="viewer" data-source-number="111">
+          <span class="srcid">#111 · BLUEJAY_1810_19705</span>
+          <span class="source-meta">3 spectra · max SNR 57.74</span>
+        </a><a class="source-link" href="sources/0118_BLUEJAY_1810_19891.html" target="viewer" data-source-number="118">
+          <span class="srcid">#118 · BLUEJAY_1810_19891</span>
+          <span class="source-meta">3 spectra · max SNR 55.80</span>
+        </a><a class="source-link" href="sources/0137_BLUEJAY_1810_12020.html" target="viewer" data-source-number="137">
+          <span class="srcid">#137 · BLUEJAY_1810_12020</span>
+          <span class="source-meta">3 spectra · max SNR 51.61</span>
+        </a><a class="source-link" href="sources/0172_BLUEJAY_1810_18977.html" target="viewer" data-source-number="172">
+          <span class="srcid">#172 · BLUEJAY_1810_18977</span>
+          <span class="source-meta">3 spectra · max SNR 43.90</span>
+        </a><a class="source-link" href="sources/0179_BLUEJAY_1810_18668.html" target="viewer" data-source-number="179">
+          <span class="srcid">#179 · BLUEJAY_1810_18668</span>
+          <span class="source-meta">3 spectra · max SNR 43.20</span>
+        </a><a class="source-link" href="sources/0191_BLUEJAY_1810_19572.html" target="viewer" data-source-number="191">
+          <span class="srcid">#191 · BLUEJAY_1810_19572</span>
+          <span class="source-meta">3 spectra · max SNR 40.44</span>
+        </a><a class="source-link" href="sources/0215_BLUEJAY_1810_17000.html" target="viewer" data-source-number="215">
+          <span class="srcid">#215 · BLUEJAY_1810_17000</span>
+          <span class="source-meta">3 spectra · max SNR 36.31</span>
+        </a><a class="source-link" href="sources/0250_BLUEJAY_1810_18688.html" target="viewer" data-source-number="250">
+          <span class="srcid">#250 · BLUEJAY_1810_18688</span>
+          <span class="source-meta">3 spectra · max SNR 27.61</span>
+        </a><a class="source-link" href="sources/0292_BLUEJAY_1810_11142.html" target="viewer" data-source-number="292">
+          <span class="srcid">#292 · BLUEJAY_1810_11142</span>
+          <span class="source-meta">3 spectra · max SNR 16.13</span>
+        </a><a class="source-link" href="sources/0325_BLUEJAY_1810_16419.html" target="viewer" data-source-number="325">
+          <span class="srcid">#325 · BLUEJAY_1810_16419</span>
+          <span class="source-meta">3 spectra · max SNR 5.86</span>
+        </a></div></details>
+<details class="project-group" open><summary>CANTALUPO (1)</summary><div class="source-list"><a class="source-link" href="sources/0046_CANTALUPO_1835_2044.html" target="viewer" data-source-number="46">
+          <span class="srcid">#46 · CANTALUPO_1835_2044</span>
+          <span class="source-meta">1 spectra · max SNR 76.40</span>
+        </a></div></details>
+<details class="project-group" open><summary>CECILIA (3)</summary><div class="source-list"><a class="source-link" href="sources/0005_CECILIA_2593_4.html" target="viewer" data-source-number="5">
+          <span class="srcid">#5 · CECILIA_2593_4</span>
+          <span class="source-meta">2 spectra · max SNR 101.46</span>
+        </a><a class="source-link" href="sources/0012_CECILIA_2593_25.html" target="viewer" data-source-number="12">
+          <span class="srcid">#12 · CECILIA_2593_25</span>
+          <span class="source-meta">2 spectra · max SNR 95.21</span>
+        </a><a class="source-link" href="sources/0041_CECILIA_2593_29.html" target="viewer" data-source-number="41">
+          <span class="srcid">#41 · CECILIA_2593_29</span>
+          <span class="source-meta">2 spectra · max SNR 78.66</span>
+        </a></div></details>
+<details class="project-group" open><summary>CEERS (7)</summary><div class="source-list"><a class="source-link" href="sources/0059_CEERS-397.html" target="viewer" data-source-number="59">
+          <span class="srcid">#59 · CEERS-397</span>
+          <span class="source-meta">6 spectra · max SNR 72.70</span>
+        </a><a class="source-link" href="sources/0090_CEERS_1345_1244.html" target="viewer" data-source-number="90">
+          <span class="srcid">#90 · CEERS_1345_1244</span>
+          <span class="source-meta">4 spectra · max SNR 62.43</span>
+        </a><a class="source-link" href="sources/0135_CEERS-11728.html" target="viewer" data-source-number="135">
+          <span class="srcid">#135 · CEERS-11728</span>
+          <span class="source-meta">4 spectra · max SNR 51.85</span>
+        </a><a class="source-link" href="sources/0197_CEERS_1345_2782.html" target="viewer" data-source-number="197">
+          <span class="srcid">#197 · CEERS_1345_2782</span>
+          <span class="source-meta">4 spectra · max SNR 39.01</span>
+        </a><a class="source-link" href="sources/0267_CEERS_1345_746.html" target="viewer" data-source-number="267">
+          <span class="srcid">#267 · CEERS_1345_746</span>
+          <span class="source-meta">4 spectra · max SNR 20.97</span>
+        </a><a class="source-link" href="sources/0277_CEERS-672.html" target="viewer" data-source-number="277">
+          <span class="srcid">#277 · CEERS-672</span>
+          <span class="source-meta">3 spectra · max SNR 18.61</span>
+        </a><a class="source-link" href="sources/0287_CEERS_1345_2904.html" target="viewer" data-source-number="287">
+          <span class="srcid">#287 · CEERS_1345_2904</span>
+          <span class="source-meta">3 spectra · max SNR 16.89</span>
+        </a></div></details>
+<details class="project-group" open><summary>COSMOS (4)</summary><div class="source-list"><a class="source-link" href="sources/0009_COSMOS_1879_1295.html" target="viewer" data-source-number="9">
+          <span class="srcid">#9 · COSMOS_1879_1295</span>
+          <span class="source-meta">3 spectra · max SNR 98.24</span>
+        </a><a class="source-link" href="sources/0053_COSMOS_4318_126891.html" target="viewer" data-source-number="53">
+          <span class="srcid">#53 · COSMOS_4318_126891</span>
+          <span class="source-meta">2 spectra · max SNR 74.71</span>
+        </a><a class="source-link" href="sources/0085_COSMOS_1879_2342.html" target="viewer" data-source-number="85">
+          <span class="srcid">#85 · COSMOS_1879_2342</span>
+          <span class="source-meta">3 spectra · max SNR 64.13</span>
+        </a><a class="source-link" href="sources/0249_COSMOS_4318_126981.html" target="viewer" data-source-number="249">
+          <span class="srcid">#249 · COSMOS_4318_126981</span>
+          <span class="source-meta">2 spectra · max SNR 28.08</span>
+        </a></div></details>
+<details class="project-group" open><summary>EGS (15)</summary><div class="source-list"><a class="source-link" href="sources/0060_EGS-34978.html" target="viewer" data-source-number="60">
+          <span class="srcid">#60 · EGS-34978</span>
+          <span class="source-meta">1 spectra · max SNR 72.38</span>
+        </a><a class="source-link" href="sources/0067_EGS-952625.html" target="viewer" data-source-number="67">
+          <span class="srcid">#67 · EGS-952625</span>
+          <span class="source-meta">2 spectra · max SNR 69.79</span>
+        </a><a class="source-link" href="sources/0089_EGS_4106_47962.html" target="viewer" data-source-number="89">
+          <span class="srcid">#89 · EGS_4106_47962</span>
+          <span class="source-meta">5 spectra · max SNR 62.61</span>
+        </a><a class="source-link" href="sources/0143_EGS_4106_71365.html" target="viewer" data-source-number="143">
+          <span class="srcid">#143 · EGS_4106_71365</span>
+          <span class="source-meta">2 spectra · max SNR 50.33</span>
+        </a><a class="source-link" href="sources/0155_EGS-70473.html" target="viewer" data-source-number="155">
+          <span class="srcid">#155 · EGS-70473</span>
+          <span class="source-meta">1 spectra · max SNR 48.00</span>
+        </a><a class="source-link" href="sources/0162_EGS-17301.html" target="viewer" data-source-number="162">
+          <span class="srcid">#162 · EGS-17301</span>
+          <span class="source-meta">3 spectra · max SNR 45.84</span>
+        </a><a class="source-link" href="sources/0163_EGS_4106_51623.html" target="viewer" data-source-number="163">
+          <span class="srcid">#163 · EGS_4106_51623</span>
+          <span class="source-meta">2 spectra · max SNR 45.84</span>
+        </a><a class="source-link" href="sources/0173_EGS-966323.html" target="viewer" data-source-number="173">
+          <span class="srcid">#173 · EGS-966323</span>
+          <span class="source-meta">7 spectra · max SNR 43.89</span>
+        </a><a class="source-link" href="sources/0200_EGS-53254.html" target="viewer" data-source-number="200">
+          <span class="srcid">#200 · EGS-53254</span>
+          <span class="source-meta">3 spectra · max SNR 38.90</span>
+        </a><a class="source-link" href="sources/0223_EGS-927271.html" target="viewer" data-source-number="223">
+          <span class="srcid">#223 · EGS-927271</span>
+          <span class="source-meta">2 spectra · max SNR 35.18</span>
+        </a><a class="source-link" href="sources/0230_EGS_4287_127193.html" target="viewer" data-source-number="230">
+          <span class="srcid">#230 · EGS_4287_127193</span>
+          <span class="source-meta">2 spectra · max SNR 33.10</span>
+        </a><a class="source-link" href="sources/0247_EGS-931291.html" target="viewer" data-source-number="247">
+          <span class="srcid">#247 · EGS-931291</span>
+          <span class="source-meta">3 spectra · max SNR 28.54</span>
+        </a><a class="source-link" href="sources/0261_EGS-959367.html" target="viewer" data-source-number="261">
+          <span class="srcid">#261 · EGS-959367</span>
+          <span class="source-meta">4 spectra · max SNR 23.25</span>
+        </a><a class="source-link" href="sources/0291_EGS_4106_57146.html" target="viewer" data-source-number="291">
+          <span class="srcid">#291 · EGS_4106_57146</span>
+          <span class="source-meta">2 spectra · max SNR 16.21</span>
+        </a><a class="source-link" href="sources/0305_EGS-46724.html" target="viewer" data-source-number="305">
+          <span class="srcid">#305 · EGS-46724</span>
+          <span class="source-meta">4 spectra · max SNR 13.00</span>
+        </a></div></details>
+<details class="project-group" open><summary>EXCELS (10)</summary><div class="source-list"><a class="source-link" href="sources/0022_EXCELS_3543_67887.html" target="viewer" data-source-number="22">
+          <span class="srcid">#22 · EXCELS_3543_67887</span>
+          <span class="source-meta">1 spectra · max SNR 91.05</span>
+        </a><a class="source-link" href="sources/0039_EXCELS_3543_89922.html" target="viewer" data-source-number="39">
+          <span class="srcid">#39 · EXCELS_3543_89922</span>
+          <span class="source-meta">1 spectra · max SNR 78.70</span>
+        </a><a class="source-link" href="sources/0044_EXCELS_3543_42268.html" target="viewer" data-source-number="44">
+          <span class="srcid">#44 · EXCELS_3543_42268</span>
+          <span class="source-meta">1 spectra · max SNR 76.99</span>
+        </a><a class="source-link" href="sources/0065_EXCELS_3543_102901.html" target="viewer" data-source-number="65">
+          <span class="srcid">#65 · EXCELS_3543_102901</span>
+          <span class="source-meta">2 spectra · max SNR 70.24</span>
+        </a><a class="source-link" href="sources/0092_EXCELS_3543_51825.html" target="viewer" data-source-number="92">
+          <span class="srcid">#92 · EXCELS_3543_51825</span>
+          <span class="source-meta">2 spectra · max SNR 62.10</span>
+        </a><a class="source-link" href="sources/0146_EXCELS_3543_34495.html" target="viewer" data-source-number="146">
+          <span class="srcid">#146 · EXCELS_3543_34495</span>
+          <span class="source-meta">3 spectra · max SNR 49.61</span>
+        </a><a class="source-link" href="sources/0165_EXCELS_3543_112990.html" target="viewer" data-source-number="165">
+          <span class="srcid">#165 · EXCELS_3543_112990</span>
+          <span class="source-meta">3 spectra · max SNR 45.65</span>
+        </a><a class="source-link" href="sources/0298_EXCELS_3543_69759.html" target="viewer" data-source-number="298">
+          <span class="srcid">#298 · EXCELS_3543_69759</span>
+          <span class="source-meta">1 spectra · max SNR 14.78</span>
+        </a><a class="source-link" href="sources/0322_EXCELS_3543_113667.html" target="viewer" data-source-number="322">
+          <span class="srcid">#322 · EXCELS_3543_113667</span>
+          <span class="source-meta">3 spectra · max SNR 6.44</span>
+        </a><a class="source-link" href="sources/0326_EXCELS_3543_98447.html" target="viewer" data-source-number="326">
+          <span class="srcid">#326 · EXCELS_3543_98447</span>
+          <span class="source-meta">1 spectra · max SNR N/A</span>
+        </a></div></details>
+<details class="project-group" open><summary>GDN (8)</summary><div class="source-list"><a class="source-link" href="sources/0055_GDN_2674_32.html" target="viewer" data-source-number="55">
+          <span class="srcid">#55 · GDN_2674_32</span>
+          <span class="source-meta">1 spectra · max SNR 74.08</span>
+        </a><a class="source-link" href="sources/0078_GDN_2674_934.html" target="viewer" data-source-number="78">
+          <span class="srcid">#78 · GDN_2674_934</span>
+          <span class="source-meta">1 spectra · max SNR 66.39</span>
+        </a><a class="source-link" href="sources/0088_GDN_4762_37583.html" target="viewer" data-source-number="88">
+          <span class="srcid">#88 · GDN_4762_37583</span>
+          <span class="source-meta">2 spectra · max SNR 62.90</span>
+        </a><a class="source-link" href="sources/0131_GDN_4762_16620.html" target="viewer" data-source-number="131">
+          <span class="srcid">#131 · GDN_4762_16620</span>
+          <span class="source-meta">2 spectra · max SNR 53.40</span>
+        </a><a class="source-link" href="sources/0148_GDN_2674_14.html" target="viewer" data-source-number="148">
+          <span class="srcid">#148 · GDN_2674_14</span>
+          <span class="source-meta">1 spectra · max SNR 49.35</span>
+        </a><a class="source-link" href="sources/0150_GDN_4762_36344.html" target="viewer" data-source-number="150">
+          <span class="srcid">#150 · GDN_4762_36344</span>
+          <span class="source-meta">2 spectra · max SNR 49.06</span>
+        </a><a class="source-link" href="sources/0151_GDN_2674_3761.html" target="viewer" data-source-number="151">
+          <span class="srcid">#151 · GDN_2674_3761</span>
+          <span class="source-meta">1 spectra · max SNR 48.97</span>
+        </a><a class="source-link" href="sources/0180_GDN_4762_33609.html" target="viewer" data-source-number="180">
+          <span class="srcid">#180 · GDN_4762_33609</span>
+          <span class="source-meta">2 spectra · max SNR 42.86</span>
+        </a></div></details>
+<details class="project-group" open><summary>GDS (6)</summary><div class="source-list"><a class="source-link" href="sources/0043_GDS_1210_9515.html" target="viewer" data-source-number="43">
+          <span class="srcid">#43 · GDS_1210_9515</span>
+          <span class="source-meta">5 spectra · max SNR 77.81</span>
+        </a><a class="source-link" href="sources/0072_GDS_1207_209962.html" target="viewer" data-source-number="72">
+          <span class="srcid">#72 · GDS_1207_209962</span>
+          <span class="source-meta">2 spectra · max SNR 68.49</span>
+        </a><a class="source-link" href="sources/0076_GDS_1210_13704.html" target="viewer" data-source-number="76">
+          <span class="srcid">#76 · GDS_1210_13704</span>
+          <span class="source-meta">5 spectra · max SNR 67.36</span>
+        </a><a class="source-link" href="sources/0126_GDS_1671_37005.html" target="viewer" data-source-number="126">
+          <span class="srcid">#126 · GDS_1671_37005</span>
+          <span class="source-meta">2 spectra · max SNR 54.50</span>
+        </a><a class="source-link" href="sources/0176_GDS_1207_208030.html" target="viewer" data-source-number="176">
+          <span class="srcid">#176 · GDS_1207_208030</span>
+          <span class="source-meta">2 spectra · max SNR 43.74</span>
+        </a><a class="source-link" href="sources/0220_GDS_1207_201027.html" target="viewer" data-source-number="220">
+          <span class="srcid">#220 · GDS_1207_201027</span>
+          <span class="source-meta">2 spectra · max SNR 35.47</span>
+        </a></div></details>
+<details class="project-group" open><summary>GLASS (1)</summary><div class="source-list"><a class="source-link" href="sources/0020_GLASS_1324_160133.html" target="viewer" data-source-number="20">
+          <span class="srcid">#20 · GLASS_1324_160133</span>
+          <span class="source-meta">4 spectra · max SNR 91.68</span>
+        </a></div></details>
+<details class="project-group" open><summary>GLIMPSE (7)</summary><div class="source-list"><a class="source-link active" href="sources/0001_GLIMPSE_9223_329380.html" target="viewer" data-source-number="1">
+          <span class="srcid">#1 · GLIMPSE_9223_329380</span>
+          <span class="source-meta">1 spectra · max SNR 108.21</span>
+        </a><a class="source-link" href="sources/0030_GLIMPSE_9223_26653.html" target="viewer" data-source-number="30">
+          <span class="srcid">#30 · GLIMPSE_9223_26653</span>
+          <span class="source-meta">1 spectra · max SNR 86.15</span>
+        </a><a class="source-link" href="sources/0048_GLIMPSE_9223_34789.html" target="viewer" data-source-number="48">
+          <span class="srcid">#48 · GLIMPSE_9223_34789</span>
+          <span class="source-meta">2 spectra · max SNR 76.18</span>
+        </a><a class="source-link" href="sources/0068_GLIMPSE_9223_43084.html" target="viewer" data-source-number="68">
+          <span class="srcid">#68 · GLIMPSE_9223_43084</span>
+          <span class="source-meta">1 spectra · max SNR 69.34</span>
+        </a><a class="source-link" href="sources/0107_GLIMPSE_9223_46938.html" target="viewer" data-source-number="107">
+          <span class="srcid">#107 · GLIMPSE_9223_46938</span>
+          <span class="source-meta">1 spectra · max SNR 58.65</span>
+        </a><a class="source-link" href="sources/0125_GLIMPSE_9223_11026.html" target="viewer" data-source-number="125">
+          <span class="srcid">#125 · GLIMPSE_9223_11026</span>
+          <span class="source-meta">1 spectra · max SNR 54.62</span>
+        </a><a class="source-link" href="sources/0315_GLIMPSE_9223_5536.html" target="viewer" data-source-number="315">
+          <span class="srcid">#315 · GLIMPSE_9223_5536</span>
+          <span class="source-meta">1 spectra · max SNR 10.13</span>
+        </a></div></details>
+<details class="project-group" open><summary>GN (4)</summary><div class="source-list"><a class="source-link" href="sources/0036_GN-29648.html" target="viewer" data-source-number="36">
+          <span class="srcid">#36 · GN-29648</span>
+          <span class="source-meta">5 spectra · max SNR 80.05</span>
+        </a><a class="source-link" href="sources/0132_GN-62309.html" target="viewer" data-source-number="132">
+          <span class="srcid">#132 · GN-62309</span>
+          <span class="source-meta">5 spectra · max SNR 53.22</span>
+        </a><a class="source-link" href="sources/0202_GN-38509.html" target="viewer" data-source-number="202">
+          <span class="srcid">#202 · GN-38509</span>
+          <span class="source-meta">4 spectra · max SNR 38.81</span>
+        </a><a class="source-link" href="sources/0318_GN-4685.html" target="viewer" data-source-number="318">
+          <span class="srcid">#318 · GN-4685</span>
+          <span class="source-meta">5 spectra · max SNR 8.85</span>
+        </a></div></details>
+<details class="project-group" open><summary>GOODSN (6)</summary><div class="source-list"><a class="source-link" href="sources/0083_GOODSN_1211_2066.html" target="viewer" data-source-number="83">
+          <span class="srcid">#83 · GOODSN_1211_2066</span>
+          <span class="source-meta">3 spectra · max SNR 65.04</span>
+        </a><a class="source-link" href="sources/0153_GOODSN_1211_5243.html" target="viewer" data-source-number="153">
+          <span class="srcid">#153 · GOODSN_1211_5243</span>
+          <span class="source-meta">3 spectra · max SNR 48.94</span>
+        </a><a class="source-link" href="sources/0254_GOODSN_1211_4151.html" target="viewer" data-source-number="254">
+          <span class="srcid">#254 · GOODSN_1211_4151</span>
+          <span class="source-meta">3 spectra · max SNR 26.11</span>
+        </a><a class="source-link" href="sources/0275_GOODSN_1211_2460.html" target="viewer" data-source-number="275">
+          <span class="srcid">#275 · GOODSN_1211_2460</span>
+          <span class="source-meta">3 spectra · max SNR 18.90</span>
+        </a><a class="source-link" href="sources/0295_GOODSN_1211_4319.html" target="viewer" data-source-number="295">
+          <span class="srcid">#295 · GOODSN_1211_4319</span>
+          <span class="source-meta">3 spectra · max SNR 15.54</span>
+        </a><a class="source-link" href="sources/0302_GOODSN_1211_1795.html" target="viewer" data-source-number="302">
+          <span class="srcid">#302 · GOODSN_1211_1795</span>
+          <span class="source-meta">3 spectra · max SNR 14.39</span>
+        </a></div></details>
+<details class="project-group" open><summary>GS (7)</summary><div class="source-list"><a class="source-link" href="sources/0017_GS-200679.html" target="viewer" data-source-number="17">
+          <span class="srcid">#17 · GS-200679</span>
+          <span class="source-meta">3 spectra · max SNR 92.12</span>
+        </a><a class="source-link" href="sources/0021_GS-159438.html" target="viewer" data-source-number="21">
+          <span class="srcid">#21 · GS-159438</span>
+          <span class="source-meta">5 spectra · max SNR 91.09</span>
+        </a><a class="source-link" href="sources/0104_GS-9598.html" target="viewer" data-source-number="104">
+          <span class="srcid">#104 · GS-9598</span>
+          <span class="source-meta">4 spectra · max SNR 59.04</span>
+        </a><a class="source-link" href="sources/0246_GS-20030333.html" target="viewer" data-source-number="246">
+          <span class="srcid">#246 · GS-20030333</span>
+          <span class="source-meta">5 spectra · max SNR 29.07</span>
+        </a><a class="source-link" href="sources/0285_GS-20057765.html" target="viewer" data-source-number="285">
+          <span class="srcid">#285 · GS-20057765</span>
+          <span class="source-meta">5 spectra · max SNR 17.16</span>
+        </a><a class="source-link" href="sources/0310_GS-164055.html" target="viewer" data-source-number="310">
+          <span class="srcid">#310 · GS-164055</span>
+          <span class="source-meta">5 spectra · max SNR 11.29</span>
+        </a><a class="source-link" href="sources/0327_GS-210600.html" target="viewer" data-source-number="327">
+          <span class="srcid">#327 · GS-210600</span>
+          <span class="source-meta">0 spectra · max SNR N/A</span>
+        </a></div></details>
+<details class="project-group" open><summary>GTO (12)</summary><div class="source-list"><a class="source-link" href="sources/0108_GTO_1215_6001.html" target="viewer" data-source-number="108">
+          <span class="srcid">#108 · GTO_1215_6001</span>
+          <span class="source-meta">3 spectra · max SNR 58.22</span>
+        </a><a class="source-link" href="sources/0147_GTO_1215_4446.html" target="viewer" data-source-number="147">
+          <span class="srcid">#147 · GTO_1215_4446</span>
+          <span class="source-meta">3 spectra · max SNR 49.59</span>
+        </a><a class="source-link" href="sources/0152_GTO_1215_4909.html" target="viewer" data-source-number="152">
+          <span class="srcid">#152 · GTO_1215_4909</span>
+          <span class="source-meta">3 spectra · max SNR 48.95</span>
+        </a><a class="source-link" href="sources/0157_GTO_1215_1472.html" target="viewer" data-source-number="157">
+          <span class="srcid">#157 · GTO_1215_1472</span>
+          <span class="source-meta">3 spectra · max SNR 47.57</span>
+        </a><a class="source-link" href="sources/0183_GTO_1215_3470.html" target="viewer" data-source-number="183">
+          <span class="srcid">#183 · GTO_1215_3470</span>
+          <span class="source-meta">3 spectra · max SNR 41.83</span>
+        </a><a class="source-link" href="sources/0263_GTO_1215_4250.html" target="viewer" data-source-number="263">
+          <span class="srcid">#263 · GTO_1215_4250</span>
+          <span class="source-meta">3 spectra · max SNR 21.95</span>
+        </a><a class="source-link" href="sources/0265_GTO_1215_3757.html" target="viewer" data-source-number="265">
+          <span class="srcid">#265 · GTO_1215_3757</span>
+          <span class="source-meta">3 spectra · max SNR 21.46</span>
+        </a><a class="source-link" href="sources/0290_GTO_1213_9063.html" target="viewer" data-source-number="290">
+          <span class="srcid">#290 · GTO_1213_9063</span>
+          <span class="source-meta">4 spectra · max SNR 16.24</span>
+        </a><a class="source-link" href="sources/0293_GTO_1214_2937.html" target="viewer" data-source-number="293">
+          <span class="srcid">#293 · GTO_1214_2937</span>
+          <span class="source-meta">3 spectra · max SNR 16.02</span>
+        </a><a class="source-link" href="sources/0304_GTO_1214_1158.html" target="viewer" data-source-number="304">
+          <span class="srcid">#304 · GTO_1214_1158</span>
+          <span class="source-meta">6 spectra · max SNR 13.55</span>
+        </a><a class="source-link" href="sources/0319_GTO_1213_3848.html" target="viewer" data-source-number="319">
+          <span class="srcid">#319 · GTO_1213_3848</span>
+          <span class="source-meta">3 spectra · max SNR 8.80</span>
+        </a><a class="source-link" href="sources/0320_GTO_1215_3088.html" target="viewer" data-source-number="320">
+          <span class="srcid">#320 · GTO_1215_3088</span>
+          <span class="source-meta">5 spectra · max SNR 8.59</span>
+        </a></div></details>
+<details class="project-group" open><summary>J0226 (5)</summary><div class="source-list"><a class="source-link" href="sources/0122_J0226_3325_1884.html" target="viewer" data-source-number="122">
+          <span class="srcid">#122 · J0226_3325_1884</span>
+          <span class="source-meta">1 spectra · max SNR 55.43</span>
+        </a><a class="source-link" href="sources/0204_J0226_3325_9556.html" target="viewer" data-source-number="204">
+          <span class="srcid">#204 · J0226_3325_9556</span>
+          <span class="source-meta">1 spectra · max SNR 38.30</span>
+        </a><a class="source-link" href="sources/0214_J0226_3325_10867.html" target="viewer" data-source-number="214">
+          <span class="srcid">#214 · J0226_3325_10867</span>
+          <span class="source-meta">1 spectra · max SNR 36.33</span>
+        </a><a class="source-link" href="sources/0252_J0226_3325_6699.html" target="viewer" data-source-number="252">
+          <span class="srcid">#252 · J0226_3325_6699</span>
+          <span class="source-meta">1 spectra · max SNR 27.38</span>
+        </a><a class="source-link" href="sources/0258_J0226_3325_3190.html" target="viewer" data-source-number="258">
+          <span class="srcid">#258 · J0226_3325_3190</span>
+          <span class="source-meta">1 spectra · max SNR 24.08</span>
+        </a></div></details>
+<details class="project-group" open><summary>J0910 (3)</summary><div class="source-list"><a class="source-link" href="sources/0062_J0910_2028_14324.html" target="viewer" data-source-number="62">
+          <span class="srcid">#62 · J0910_2028_14324</span>
+          <span class="source-meta">2 spectra · max SNR 71.48</span>
+        </a><a class="source-link" href="sources/0121_J0910_2028_14306.html" target="viewer" data-source-number="121">
+          <span class="srcid">#121 · J0910_2028_14306</span>
+          <span class="source-meta">2 spectra · max SNR 55.56</span>
+        </a><a class="source-link" href="sources/0274_J0910_2028_12910.html" target="viewer" data-source-number="274">
+          <span class="srcid">#274 · J0910_2028_12910</span>
+          <span class="source-meta">2 spectra · max SNR 19.25</span>
+        </a></div></details>
+<details class="project-group" open><summary>JADES (49)</summary><div class="source-list"><a class="source-link" href="sources/0006_JADES_1181_68797.html" target="viewer" data-source-number="6">
+          <span class="srcid">#6 · JADES_1181_68797</span>
+          <span class="source-meta">10 spectra · max SNR 100.48</span>
+        </a><a class="source-link" href="sources/0026_JADES_1181_78773.html" target="viewer" data-source-number="26">
+          <span class="srcid">#26 · JADES_1181_78773</span>
+          <span class="source-meta">5 spectra · max SNR 88.84</span>
+        </a><a class="source-link" href="sources/0027_JADES_1181_23924.html" target="viewer" data-source-number="27">
+          <span class="srcid">#27 · JADES_1181_23924</span>
+          <span class="source-meta">4 spectra · max SNR 88.01</span>
+        </a><a class="source-link" href="sources/0032_JADES_1181_28074.html" target="viewer" data-source-number="32">
+          <span class="srcid">#32 · JADES_1181_28074</span>
+          <span class="source-meta">4 spectra · max SNR 84.64</span>
+        </a><a class="source-link" href="sources/0035_JADES_1181_11836.html" target="viewer" data-source-number="35">
+          <span class="srcid">#35 · JADES_1181_11836</span>
+          <span class="source-meta">5 spectra · max SNR 81.03</span>
+        </a><a class="source-link" href="sources/0038_JADES_1286_30148179.html" target="viewer" data-source-number="38">
+          <span class="srcid">#38 · JADES_1286_30148179</span>
+          <span class="source-meta">9 spectra · max SNR 79.53</span>
+        </a><a class="source-link" href="sources/0040_JADES_1181_34145.html" target="viewer" data-source-number="40">
+          <span class="srcid">#40 · JADES_1181_34145</span>
+          <span class="source-meta">4 spectra · max SNR 78.68</span>
+        </a><a class="source-link" href="sources/0042_JADES_1286_179198.html" target="viewer" data-source-number="42">
+          <span class="srcid">#42 · JADES_1286_179198</span>
+          <span class="source-meta">7 spectra · max SNR 78.58</span>
+        </a><a class="source-link" href="sources/0049_JADES_1181_73488.html" target="viewer" data-source-number="49">
+          <span class="srcid">#49 · JADES_1181_73488</span>
+          <span class="source-meta">5 spectra · max SNR 75.76</span>
+        </a><a class="source-link" href="sources/0054_JADES_1286_180575.html" target="viewer" data-source-number="54">
+          <span class="srcid">#54 · JADES_1286_180575</span>
+          <span class="source-meta">6 spectra · max SNR 74.22</span>
+        </a><a class="source-link" href="sources/0056_JADES_1181_64818.html" target="viewer" data-source-number="56">
+          <span class="srcid">#56 · JADES_1181_64818</span>
+          <span class="source-meta">4 spectra · max SNR 73.91</span>
+        </a><a class="source-link" href="sources/0070_JADES_1181_38147.html" target="viewer" data-source-number="70">
+          <span class="srcid">#70 · JADES_1181_38147</span>
+          <span class="source-meta">6 spectra · max SNR 68.74</span>
+        </a><a class="source-link" href="sources/0075_JADES_1181_26194.html" target="viewer" data-source-number="75">
+          <span class="srcid">#75 · JADES_1181_26194</span>
+          <span class="source-meta">5 spectra · max SNR 67.61</span>
+        </a><a class="source-link" href="sources/0077_JADES_1180_16375.html" target="viewer" data-source-number="77">
+          <span class="srcid">#77 · JADES_1180_16375</span>
+          <span class="source-meta">4 spectra · max SNR 67.13</span>
+        </a><a class="source-link" href="sources/0094_JADES_1181_28746.html" target="viewer" data-source-number="94">
+          <span class="srcid">#94 · JADES_1181_28746</span>
+          <span class="source-meta">5 spectra · max SNR 61.83</span>
+        </a><a class="source-link" href="sources/0096_JADES_1286_38562.html" target="viewer" data-source-number="96">
+          <span class="srcid">#96 · JADES_1286_38562</span>
+          <span class="source-meta">5 spectra · max SNR 61.63</span>
+        </a><a class="source-link" href="sources/0100_JADES_1181_53501.html" target="viewer" data-source-number="100">
+          <span class="srcid">#100 · JADES_1181_53501</span>
+          <span class="source-meta">10 spectra · max SNR 59.94</span>
+        </a><a class="source-link" href="sources/0109_JADES_1180_13520.html" target="viewer" data-source-number="109">
+          <span class="srcid">#109 · JADES_1180_13520</span>
+          <span class="source-meta">4 spectra · max SNR 58.06</span>
+        </a><a class="source-link" href="sources/0113_JADES_1180_44271.html" target="viewer" data-source-number="113">
+          <span class="srcid">#113 · JADES_1180_44271</span>
+          <span class="source-meta">4 spectra · max SNR 57.32</span>
+        </a><a class="source-link" href="sources/0119_JADES_1180_7384.html" target="viewer" data-source-number="119">
+          <span class="srcid">#119 · JADES_1180_7384</span>
+          <span class="source-meta">4 spectra · max SNR 55.79</span>
+        </a><a class="source-link" href="sources/0127_JADES_1180_5807.html" target="viewer" data-source-number="127">
+          <span class="srcid">#127 · JADES_1180_5807</span>
+          <span class="source-meta">4 spectra · max SNR 54.46</span>
+        </a><a class="source-link" href="sources/0128_JADES_1181_27887.html" target="viewer" data-source-number="128">
+          <span class="srcid">#128 · JADES_1181_27887</span>
+          <span class="source-meta">5 spectra · max SNR 53.75</span>
+        </a><a class="source-link" href="sources/0130_JADES_1286_159717.html" target="viewer" data-source-number="130">
+          <span class="srcid">#130 · JADES_1286_159717</span>
+          <span class="source-meta">5 spectra · max SNR 53.47</span>
+        </a><a class="source-link" href="sources/0136_JADES_1180_209777.html" target="viewer" data-source-number="136">
+          <span class="srcid">#136 · JADES_1180_209777</span>
+          <span class="source-meta">4 spectra · max SNR 51.74</span>
+        </a><a class="source-link" href="sources/0138_JADES_1181_2331.html" target="viewer" data-source-number="138">
+          <span class="srcid">#138 · JADES_1181_2331</span>
+          <span class="source-meta">4 spectra · max SNR 51.30</span>
+        </a><a class="source-link" href="sources/0139_JADES_1286_204851.html" target="viewer" data-source-number="139">
+          <span class="srcid">#139 · JADES_1286_204851</span>
+          <span class="source-meta">5 spectra · max SNR 51.28</span>
+        </a><a class="source-link" href="sources/0142_JADES_1181_954.html" target="viewer" data-source-number="142">
+          <span class="srcid">#142 · JADES_1181_954</span>
+          <span class="source-meta">4 spectra · max SNR 51.02</span>
+        </a><a class="source-link" href="sources/0144_JADES_1181_721.html" target="viewer" data-source-number="144">
+          <span class="srcid">#144 · JADES_1181_721</span>
+          <span class="source-meta">5 spectra · max SNR 49.80</span>
+        </a><a class="source-link" href="sources/0158_JADES_1181_2916.html" target="viewer" data-source-number="158">
+          <span class="srcid">#158 · JADES_1181_2916</span>
+          <span class="source-meta">4 spectra · max SNR 46.70</span>
+        </a><a class="source-link" href="sources/0164_JADES_1180_17341.html" target="viewer" data-source-number="164">
+          <span class="srcid">#164 · JADES_1180_17341</span>
+          <span class="source-meta">4 spectra · max SNR 45.77</span>
+        </a><a class="source-link" href="sources/0166_JADES_1181_61888.html" target="viewer" data-source-number="166">
+          <span class="srcid">#166 · JADES_1181_61888</span>
+          <span class="source-meta">5 spectra · max SNR 45.59</span>
+        </a><a class="source-link" href="sources/0171_JADES_1181_53757.html" target="viewer" data-source-number="171">
+          <span class="srcid">#171 · JADES_1181_53757</span>
+          <span class="source-meta">7 spectra · max SNR 44.76</span>
+        </a><a class="source-link" href="sources/0175_JADES_1180_13329.html" target="viewer" data-source-number="175">
+          <span class="srcid">#175 · JADES_1180_13329</span>
+          <span class="source-meta">4 spectra · max SNR 43.85</span>
+        </a><a class="source-link" href="sources/0188_JADES_1181_20621.html" target="viewer" data-source-number="188">
+          <span class="srcid">#188 · JADES_1181_20621</span>
+          <span class="source-meta">5 spectra · max SNR 40.76</span>
+        </a><a class="source-link" href="sources/0190_JADES_1180_10013268.html" target="viewer" data-source-number="190">
+          <span class="srcid">#190 · JADES_1180_10013268</span>
+          <span class="source-meta">4 spectra · max SNR 40.46</span>
+        </a><a class="source-link" href="sources/0194_JADES_1181_77652.html" target="viewer" data-source-number="194">
+          <span class="srcid">#194 · JADES_1181_77652</span>
+          <span class="source-meta">5 spectra · max SNR 40.10</span>
+        </a><a class="source-link" href="sources/0196_JADES_1181_29711.html" target="viewer" data-source-number="196">
+          <span class="srcid">#196 · JADES_1181_29711</span>
+          <span class="source-meta">4 spectra · max SNR 39.30</span>
+        </a><a class="source-link" href="sources/0205_JADES_1181_1093.html" target="viewer" data-source-number="205">
+          <span class="srcid">#205 · JADES_1181_1093</span>
+          <span class="source-meta">5 spectra · max SNR 38.23</span>
+        </a><a class="source-link" href="sources/0207_JADES_1180_107700.html" target="viewer" data-source-number="207">
+          <span class="srcid">#207 · JADES_1180_107700</span>
+          <span class="source-meta">6 spectra · max SNR 37.73</span>
+        </a><a class="source-link" href="sources/0216_JADES_1286_37746.html" target="viewer" data-source-number="216">
+          <span class="srcid">#216 · JADES_1286_37746</span>
+          <span class="source-meta">5 spectra · max SNR 36.30</span>
+        </a><a class="source-link" href="sources/0232_JADES_1181_23367.html" target="viewer" data-source-number="232">
+          <span class="srcid">#232 · JADES_1181_23367</span>
+          <span class="source-meta">4 spectra · max SNR 32.95</span>
+        </a><a class="source-link" href="sources/0237_JADES_1181_22456.html" target="viewer" data-source-number="237">
+          <span class="srcid">#237 · JADES_1181_22456</span>
+          <span class="source-meta">7 spectra · max SNR 30.82</span>
+        </a><a class="source-link" href="sources/0242_JADES_1286_172975.html" target="viewer" data-source-number="242">
+          <span class="srcid">#242 · JADES_1286_172975</span>
+          <span class="source-meta">5 spectra · max SNR 29.90</span>
+        </a><a class="source-link" href="sources/0244_JADES_1181_28428.html" target="viewer" data-source-number="244">
+          <span class="srcid">#244 · JADES_1181_28428</span>
+          <span class="source-meta">5 spectra · max SNR 29.69</span>
+        </a><a class="source-link" href="sources/0248_JADES_1181_39353.html" target="viewer" data-source-number="248">
+          <span class="srcid">#248 · JADES_1181_39353</span>
+          <span class="source-meta">6 spectra · max SNR 28.29</span>
+        </a><a class="source-link" href="sources/0262_JADES_1180_197911.html" target="viewer" data-source-number="262">
+          <span class="srcid">#262 · JADES_1180_197911</span>
+          <span class="source-meta">5 spectra · max SNR 23.18</span>
+        </a><a class="source-link" href="sources/0271_JADES_1181_72127.html" target="viewer" data-source-number="271">
+          <span class="srcid">#271 · JADES_1181_72127</span>
+          <span class="source-meta">5 spectra · max SNR 19.39</span>
+        </a><a class="source-link" href="sources/0281_JADES_1180_6112.html" target="viewer" data-source-number="281">
+          <span class="srcid">#281 · JADES_1180_6112</span>
+          <span class="source-meta">5 spectra · max SNR 17.83</span>
+        </a><a class="source-link" href="sources/0288_JADES_1181_25055.html" target="viewer" data-source-number="288">
+          <span class="srcid">#288 · JADES_1181_25055</span>
+          <span class="source-meta">5 spectra · max SNR 16.86</span>
+        </a></div></details>
+<details class="project-group" open><summary>LYC22 (4)</summary><div class="source-list"><a class="source-link" href="sources/0014_LYC22_1869_2009.html" target="viewer" data-source-number="14">
+          <span class="srcid">#14 · LYC22_1869_2009</span>
+          <span class="source-meta">2 spectra · max SNR 92.82</span>
+        </a><a class="source-link" href="sources/0029_LYC22_1869_20013.html" target="viewer" data-source-number="29">
+          <span class="srcid">#29 · LYC22_1869_20013</span>
+          <span class="source-meta">2 spectra · max SNR 86.95</span>
+        </a><a class="source-link" href="sources/0031_LYC22_1869_20081.html" target="viewer" data-source-number="31">
+          <span class="srcid">#31 · LYC22_1869_20081</span>
+          <span class="source-meta">2 spectra · max SNR 86.00</span>
+        </a><a class="source-link" href="sources/0140_LYC22_1869_4096.html" target="viewer" data-source-number="140">
+          <span class="srcid">#140 · LYC22_1869_4096</span>
+          <span class="source-meta">2 spectra · max SNR 51.26</span>
+        </a></div></details>
+<details class="project-group" open><summary>MACS0416 (4)</summary><div class="source-list"><a class="source-link" href="sources/0069_MACS0416_4750_60003.html" target="viewer" data-source-number="69">
+          <span class="srcid">#69 · MACS0416_4750_60003</span>
+          <span class="source-meta">3 spectra · max SNR 69.00</span>
+        </a><a class="source-link" href="sources/0115_MACS0416_4750_50001.html" target="viewer" data-source-number="115">
+          <span class="srcid">#115 · MACS0416_4750_50001</span>
+          <span class="source-meta">2 spectra · max SNR 56.57</span>
+        </a><a class="source-link" href="sources/0145_MACS0416_4750_60009.html" target="viewer" data-source-number="145">
+          <span class="srcid">#145 · MACS0416_4750_60009</span>
+          <span class="source-meta">3 spectra · max SNR 49.68</span>
+        </a><a class="source-link" href="sources/0257_MACS0416_4750_22011.html" target="viewer" data-source-number="257">
+          <span class="srcid">#257 · MACS0416_4750_22011</span>
+          <span class="source-meta">2 spectra · max SNR 24.70</span>
+        </a></div></details>
+<details class="project-group" open><summary>MACS1149 (9)</summary><div class="source-list"><a class="source-link" href="sources/0004_MACS1149_2758_60001.html" target="viewer" data-source-number="4">
+          <span class="srcid">#4 · MACS1149_2758_60001</span>
+          <span class="source-meta">2 spectra · max SNR 102.34</span>
+        </a><a class="source-link" href="sources/0011_MACS1149_2758_40149.html" target="viewer" data-source-number="11">
+          <span class="srcid">#11 · MACS1149_2758_40149</span>
+          <span class="source-meta">2 spectra · max SNR 95.30</span>
+        </a><a class="source-link" href="sources/0018_MACS1149_2758_60003.html" target="viewer" data-source-number="18">
+          <span class="srcid">#18 · MACS1149_2758_60003</span>
+          <span class="source-meta">2 spectra · max SNR 91.95</span>
+        </a><a class="source-link" href="sources/0034_MACS1149_1199_20024.html" target="viewer" data-source-number="34">
+          <span class="srcid">#34 · MACS1149_1199_20024</span>
+          <span class="source-meta">2 spectra · max SNR 81.49</span>
+        </a><a class="source-link" href="sources/0086_MACS1149_2758_40151.html" target="viewer" data-source-number="86">
+          <span class="srcid">#86 · MACS1149_2758_40151</span>
+          <span class="source-meta">2 spectra · max SNR 63.70</span>
+        </a><a class="source-link" href="sources/0093_MACS1149_2758_150337.html" target="viewer" data-source-number="93">
+          <span class="srcid">#93 · MACS1149_2758_150337</span>
+          <span class="source-meta">2 spectra · max SNR 61.93</span>
+        </a><a class="source-link" href="sources/0177_MACS1149_1199_80002.html" target="viewer" data-source-number="177">
+          <span class="srcid">#177 · MACS1149_1199_80002</span>
+          <span class="source-meta">1 spectra · max SNR 43.70</span>
+        </a><a class="source-link" href="sources/0181_MACS1149_2758_150471.html" target="viewer" data-source-number="181">
+          <span class="srcid">#181 · MACS1149_2758_150471</span>
+          <span class="source-meta">2 spectra · max SNR 42.63</span>
+        </a><a class="source-link" href="sources/0300_MACS1149_2758_30028.html" target="viewer" data-source-number="300">
+          <span class="srcid">#300 · MACS1149_2758_30028</span>
+          <span class="source-meta">2 spectra · max SNR 14.50</span>
+        </a></div></details>
+<details class="project-group" open><summary>RUBIES (72)</summary><div class="source-list"><a class="source-link" href="sources/0045_RUBIES-UDS-48507.html" target="viewer" data-source-number="45">
+          <span class="srcid">#45 · RUBIES-UDS-48507</span>
+          <span class="source-meta">1 spectra · max SNR 76.81</span>
+        </a><a class="source-link" href="sources/0057_RUBIES-UDS-153207.html" target="viewer" data-source-number="57">
+          <span class="srcid">#57 · RUBIES-UDS-153207</span>
+          <span class="source-meta">2 spectra · max SNR 73.67</span>
+        </a><a class="source-link" href="sources/0058_RUBIES-UDS-35974.html" target="viewer" data-source-number="58">
+          <span class="srcid">#58 · RUBIES-UDS-35974</span>
+          <span class="source-meta">2 spectra · max SNR 72.81</span>
+        </a><a class="source-link" href="sources/0064_RUBIES_4233_30969.html" target="viewer" data-source-number="64">
+          <span class="srcid">#64 · RUBIES_4233_30969</span>
+          <span class="source-meta">1 spectra · max SNR 70.48</span>
+        </a><a class="source-link" href="sources/0066_RUBIES-UDS-46566.html" target="viewer" data-source-number="66">
+          <span class="srcid">#66 · RUBIES-UDS-46566</span>
+          <span class="source-meta">2 spectra · max SNR 70.10</span>
+        </a><a class="source-link" href="sources/0071_RUBIES-UDS-46885.html" target="viewer" data-source-number="71">
+          <span class="srcid">#71 · RUBIES-UDS-46885</span>
+          <span class="source-meta">1 spectra · max SNR 68.59</span>
+        </a><a class="source-link" href="sources/0073_RUBIES_4233_8895.html" target="viewer" data-source-number="73">
+          <span class="srcid">#73 · RUBIES_4233_8895</span>
+          <span class="source-meta">2 spectra · max SNR 68.28</span>
+        </a><a class="source-link" href="sources/0080_RUBIES_4233_50052.html" target="viewer" data-source-number="80">
+          <span class="srcid">#80 · RUBIES_4233_50052</span>
+          <span class="source-meta">3 spectra · max SNR 66.22</span>
+        </a><a class="source-link" href="sources/0081_RUBIES-UDS-22304.html" target="viewer" data-source-number="81">
+          <span class="srcid">#81 · RUBIES-UDS-22304</span>
+          <span class="source-meta">1 spectra · max SNR 65.52</span>
+        </a><a class="source-link" href="sources/0087_RUBIES_4233_42046.html" target="viewer" data-source-number="87">
+          <span class="srcid">#87 · RUBIES_4233_42046</span>
+          <span class="source-meta">2 spectra · max SNR 63.11</span>
+        </a><a class="source-link" href="sources/0095_RUBIES_4233_174752.html" target="viewer" data-source-number="95">
+          <span class="srcid">#95 · RUBIES_4233_174752</span>
+          <span class="source-meta">2 spectra · max SNR 61.63</span>
+        </a><a class="source-link" href="sources/0101_RUBIES_4233_182791.html" target="viewer" data-source-number="101">
+          <span class="srcid">#101 · RUBIES_4233_182791</span>
+          <span class="source-meta">2 spectra · max SNR 59.74</span>
+        </a><a class="source-link" href="sources/0102_RUBIES_4233_45502.html" target="viewer" data-source-number="102">
+          <span class="srcid">#102 · RUBIES_4233_45502</span>
+          <span class="source-meta">2 spectra · max SNR 59.58</span>
+        </a><a class="source-link" href="sources/0106_RUBIES-EGS-920.html" target="viewer" data-source-number="106">
+          <span class="srcid">#106 · RUBIES-EGS-920</span>
+          <span class="source-meta">2 spectra · max SNR 58.80</span>
+        </a><a class="source-link" href="sources/0116_RUBIES_4233_47509.html" target="viewer" data-source-number="116">
+          <span class="srcid">#116 · RUBIES_4233_47509</span>
+          <span class="source-meta">2 spectra · max SNR 56.06</span>
+        </a><a class="source-link" href="sources/0120_RUBIES_4233_28812.html" target="viewer" data-source-number="120">
+          <span class="srcid">#120 · RUBIES_4233_28812</span>
+          <span class="source-meta">4 spectra · max SNR 55.77</span>
+        </a><a class="source-link" href="sources/0129_RUBIES_4233_24210.html" target="viewer" data-source-number="129">
+          <span class="srcid">#129 · RUBIES_4233_24210</span>
+          <span class="source-meta">2 spectra · max SNR 53.56</span>
+        </a><a class="source-link" href="sources/0141_RUBIES_4233_41926.html" target="viewer" data-source-number="141">
+          <span class="srcid">#141 · RUBIES_4233_41926</span>
+          <span class="source-meta">1 spectra · max SNR 51.16</span>
+        </a><a class="source-link" href="sources/0149_RUBIES_4233_49140.html" target="viewer" data-source-number="149">
+          <span class="srcid">#149 · RUBIES_4233_49140</span>
+          <span class="source-meta">5 spectra · max SNR 49.28</span>
+        </a><a class="source-link" href="sources/0154_RUBIES_4233_19521.html" target="viewer" data-source-number="154">
+          <span class="srcid">#154 · RUBIES_4233_19521</span>
+          <span class="source-meta">4 spectra · max SNR 48.25</span>
+        </a><a class="source-link" href="sources/0159_RUBIES_4233_60935.html" target="viewer" data-source-number="159">
+          <span class="srcid">#159 · RUBIES_4233_60935</span>
+          <span class="source-meta">2 spectra · max SNR 46.55</span>
+        </a><a class="source-link" href="sources/0161_RUBIES-EGS-19174.html" target="viewer" data-source-number="161">
+          <span class="srcid">#161 · RUBIES-EGS-19174</span>
+          <span class="source-meta">2 spectra · max SNR 46.20</span>
+        </a><a class="source-link" href="sources/0167_RUBIES_4233_119957.html" target="viewer" data-source-number="167">
+          <span class="srcid">#167 · RUBIES_4233_119957</span>
+          <span class="source-meta">2 spectra · max SNR 45.20</span>
+        </a><a class="source-link" href="sources/0168_RUBIES_4233_926125.html" target="viewer" data-source-number="168">
+          <span class="srcid">#168 · RUBIES_4233_926125</span>
+          <span class="source-meta">2 spectra · max SNR 45.03</span>
+        </a><a class="source-link" href="sources/0174_RUBIES_4233_29813.html" target="viewer" data-source-number="174">
+          <span class="srcid">#174 · RUBIES_4233_29813</span>
+          <span class="source-meta">2 spectra · max SNR 43.85</span>
+        </a><a class="source-link" href="sources/0178_RUBIES_4233_42232.html" target="viewer" data-source-number="178">
+          <span class="srcid">#178 · RUBIES_4233_42232</span>
+          <span class="source-meta">5 spectra · max SNR 43.45</span>
+        </a><a class="source-link" href="sources/0182_RUBIES_4233_172350.html" target="viewer" data-source-number="182">
+          <span class="srcid">#182 · RUBIES_4233_172350</span>
+          <span class="source-meta">2 spectra · max SNR 42.23</span>
+        </a><a class="source-link" href="sources/0184_RUBIES-EGS-50812.html" target="viewer" data-source-number="184">
+          <span class="srcid">#184 · RUBIES-EGS-50812</span>
+          <span class="source-meta">2 spectra · max SNR 41.62</span>
+        </a><a class="source-link" href="sources/0185_RUBIES-UDS-11721.html" target="viewer" data-source-number="185">
+          <span class="srcid">#185 · RUBIES-UDS-11721</span>
+          <span class="source-meta">2 spectra · max SNR 41.29</span>
+        </a><a class="source-link" href="sources/0186_RUBIES_4233_54059.html" target="viewer" data-source-number="186">
+          <span class="srcid">#186 · RUBIES_4233_54059</span>
+          <span class="source-meta">2 spectra · max SNR 41.23</span>
+        </a><a class="source-link" href="sources/0192_RUBIES_4233_13872.html" target="viewer" data-source-number="192">
+          <span class="srcid">#192 · RUBIES_4233_13872</span>
+          <span class="source-meta">2 spectra · max SNR 40.23</span>
+        </a><a class="source-link" href="sources/0193_RUBIES_4233_6411.html" target="viewer" data-source-number="193">
+          <span class="srcid">#193 · RUBIES_4233_6411</span>
+          <span class="source-meta">2 spectra · max SNR 40.11</span>
+        </a><a class="source-link" href="sources/0195_RUBIES_4233_55604.html" target="viewer" data-source-number="195">
+          <span class="srcid">#195 · RUBIES_4233_55604</span>
+          <span class="source-meta">2 spectra · max SNR 39.93</span>
+        </a><a class="source-link" href="sources/0198_RUBIES_4233_42658.html" target="viewer" data-source-number="198">
+          <span class="srcid">#198 · RUBIES_4233_42658</span>
+          <span class="source-meta">1 spectra · max SNR 38.98</span>
+        </a><a class="source-link" href="sources/0199_RUBIES_4233_807469.html" target="viewer" data-source-number="199">
+          <span class="srcid">#199 · RUBIES_4233_807469</span>
+          <span class="source-meta">2 spectra · max SNR 38.93</span>
+        </a><a class="source-link" href="sources/0203_RUBIES_4233_150323.html" target="viewer" data-source-number="203">
+          <span class="srcid">#203 · RUBIES_4233_150323</span>
+          <span class="source-meta">1 spectra · max SNR 38.76</span>
+        </a><a class="source-link" href="sources/0208_RUBIES_4233_925921.html" target="viewer" data-source-number="208">
+          <span class="srcid">#208 · RUBIES_4233_925921</span>
+          <span class="source-meta">2 spectra · max SNR 37.62</span>
+        </a><a class="source-link" href="sources/0209_RUBIES-EGS-17146.html" target="viewer" data-source-number="209">
+          <span class="srcid">#209 · RUBIES-EGS-17146</span>
+          <span class="source-meta">3 spectra · max SNR 37.15</span>
+        </a><a class="source-link" href="sources/0211_RUBIES_4233_17604.html" target="viewer" data-source-number="211">
+          <span class="srcid">#211 · RUBIES_4233_17604</span>
+          <span class="source-meta">1 spectra · max SNR 36.86</span>
+        </a><a class="source-link" href="sources/0213_RUBIES_4233_10036.html" target="viewer" data-source-number="213">
+          <span class="srcid">#213 · RUBIES_4233_10036</span>
+          <span class="source-meta">2 spectra · max SNR 36.50</span>
+        </a><a class="source-link" href="sources/0217_RUBIES_4233_41683.html" target="viewer" data-source-number="217">
+          <span class="srcid">#217 · RUBIES_4233_41683</span>
+          <span class="source-meta">1 spectra · max SNR 36.00</span>
+        </a><a class="source-link" href="sources/0219_RUBIES_4233_61627.html" target="viewer" data-source-number="219">
+          <span class="srcid">#219 · RUBIES_4233_61627</span>
+          <span class="source-meta">2 spectra · max SNR 35.61</span>
+        </a><a class="source-link" href="sources/0221_RUBIES_4233_31747.html" target="viewer" data-source-number="221">
+          <span class="srcid">#221 · RUBIES_4233_31747</span>
+          <span class="source-meta">2 spectra · max SNR 35.39</span>
+        </a><a class="source-link" href="sources/0222_RUBIES_4233_147412.html" target="viewer" data-source-number="222">
+          <span class="srcid">#222 · RUBIES_4233_147412</span>
+          <span class="source-meta">3 spectra · max SNR 35.37</span>
+        </a><a class="source-link" href="sources/0225_RUBIES_4233_139709.html" target="viewer" data-source-number="225">
+          <span class="srcid">#225 · RUBIES_4233_139709</span>
+          <span class="source-meta">2 spectra · max SNR 34.98</span>
+        </a><a class="source-link" href="sources/0227_RUBIES_4233_37124.html" target="viewer" data-source-number="227">
+          <span class="srcid">#227 · RUBIES_4233_37124</span>
+          <span class="source-meta">2 spectra · max SNR 33.91</span>
+        </a><a class="source-link" href="sources/0228_RUBIES_4233_58237.html" target="viewer" data-source-number="228">
+          <span class="srcid">#228 · RUBIES_4233_58237</span>
+          <span class="source-meta">3 spectra · max SNR 33.91</span>
+        </a><a class="source-link" href="sources/0233_RUBIES_4233_29489.html" target="viewer" data-source-number="233">
+          <span class="srcid">#233 · RUBIES_4233_29489</span>
+          <span class="source-meta">3 spectra · max SNR 32.04</span>
+        </a><a class="source-link" href="sources/0236_RUBIES_4233_48449.html" target="viewer" data-source-number="236">
+          <span class="srcid">#236 · RUBIES_4233_48449</span>
+          <span class="source-meta">2 spectra · max SNR 30.88</span>
+        </a><a class="source-link" href="sources/0238_RUBIES-EGS-46985.html" target="viewer" data-source-number="238">
+          <span class="srcid">#238 · RUBIES-EGS-46985</span>
+          <span class="source-meta">2 spectra · max SNR 30.59</span>
+        </a><a class="source-link" href="sources/0239_RUBIES_4233_148866.html" target="viewer" data-source-number="239">
+          <span class="srcid">#239 · RUBIES_4233_148866</span>
+          <span class="source-meta">2 spectra · max SNR 30.58</span>
+        </a><a class="source-link" href="sources/0240_RUBIES_4233_25712.html" target="viewer" data-source-number="240">
+          <span class="srcid">#240 · RUBIES_4233_25712</span>
+          <span class="source-meta">2 spectra · max SNR 30.50</span>
+        </a><a class="source-link" href="sources/0251_RUBIES-UDS-19484.html" target="viewer" data-source-number="251">
+          <span class="srcid">#251 · RUBIES-UDS-19484</span>
+          <span class="source-meta">2 spectra · max SNR 27.60</span>
+        </a><a class="source-link" href="sources/0255_RUBIES_4233_61496.html" target="viewer" data-source-number="255">
+          <span class="srcid">#255 · RUBIES_4233_61496</span>
+          <span class="source-meta">2 spectra · max SNR 25.37</span>
+        </a><a class="source-link" href="sources/0256_RUBIES_4233_37032.html" target="viewer" data-source-number="256">
+          <span class="srcid">#256 · RUBIES_4233_37032</span>
+          <span class="source-meta">2 spectra · max SNR 25.35</span>
+        </a><a class="source-link" href="sources/0259_RUBIES_4233_15825.html" target="viewer" data-source-number="259">
+          <span class="srcid">#259 · RUBIES_4233_15825</span>
+          <span class="source-meta">2 spectra · max SNR 23.85</span>
+        </a><a class="source-link" href="sources/0276_RUBIES_4233_50522.html" target="viewer" data-source-number="276">
+          <span class="srcid">#276 · RUBIES_4233_50522</span>
+          <span class="source-meta">2 spectra · max SNR 18.74</span>
+        </a><a class="source-link" href="sources/0278_RUBIES_4233_166271.html" target="viewer" data-source-number="278">
+          <span class="srcid">#278 · RUBIES_4233_166271</span>
+          <span class="source-meta">2 spectra · max SNR 18.59</span>
+        </a><a class="source-link" href="sources/0279_RUBIES_4233_42803.html" target="viewer" data-source-number="279">
+          <span class="srcid">#279 · RUBIES_4233_42803</span>
+          <span class="source-meta">3 spectra · max SNR 18.21</span>
+        </a><a class="source-link" href="sources/0280_RUBIES-UDS-18302.html" target="viewer" data-source-number="280">
+          <span class="srcid">#280 · RUBIES-UDS-18302</span>
+          <span class="source-meta">2 spectra · max SNR 18.12</span>
+        </a><a class="source-link" href="sources/0282_RUBIES_4233_970351.html" target="viewer" data-source-number="282">
+          <span class="srcid">#282 · RUBIES_4233_970351</span>
+          <span class="source-meta">2 spectra · max SNR 17.27</span>
+        </a><a class="source-link" href="sources/0289_RUBIES_4233_16053.html" target="viewer" data-source-number="289">
+          <span class="srcid">#289 · RUBIES_4233_16053</span>
+          <span class="source-meta">2 spectra · max SNR 16.78</span>
+        </a><a class="source-link" href="sources/0294_RUBIES_4233_119559.html" target="viewer" data-source-number="294">
+          <span class="srcid">#294 · RUBIES_4233_119559</span>
+          <span class="source-meta">2 spectra · max SNR 15.73</span>
+        </a><a class="source-link" href="sources/0299_RUBIES_4233_50716.html" target="viewer" data-source-number="299">
+          <span class="srcid">#299 · RUBIES_4233_50716</span>
+          <span class="source-meta">2 spectra · max SNR 14.60</span>
+        </a><a class="source-link" href="sources/0301_RUBIES-UDS-155916.html" target="viewer" data-source-number="301">
+          <span class="srcid">#301 · RUBIES-UDS-155916</span>
+          <span class="source-meta">2 spectra · max SNR 14.41</span>
+        </a><a class="source-link" href="sources/0303_RUBIES-UDS-21944.html" target="viewer" data-source-number="303">
+          <span class="srcid">#303 · RUBIES-UDS-21944</span>
+          <span class="source-meta">2 spectra · max SNR 13.71</span>
+        </a><a class="source-link" href="sources/0307_RUBIES_4233_150987.html" target="viewer" data-source-number="307">
+          <span class="srcid">#307 · RUBIES_4233_150987</span>
+          <span class="source-meta">2 spectra · max SNR 11.68</span>
+        </a><a class="source-link" href="sources/0311_RUBIES-UDS-146995.html" target="viewer" data-source-number="311">
+          <span class="srcid">#311 · RUBIES-UDS-146995</span>
+          <span class="source-meta">2 spectra · max SNR 11.03</span>
+        </a><a class="source-link" href="sources/0314_RUBIES_4233_160366.html" target="viewer" data-source-number="314">
+          <span class="srcid">#314 · RUBIES_4233_160366</span>
+          <span class="source-meta">2 spectra · max SNR 10.29</span>
+        </a><a class="source-link" href="sources/0323_RUBIES-EGS-45599.html" target="viewer" data-source-number="323">
+          <span class="srcid">#323 · RUBIES-EGS-45599</span>
+          <span class="source-meta">1 spectra · max SNR 6.16</span>
+        </a><a class="source-link" href="sources/0328_RUBIES-UDS-147411.html" target="viewer" data-source-number="328">
+          <span class="srcid">#328 · RUBIES-UDS-147411</span>
+          <span class="source-meta">0 spectra · max SNR N/A</span>
+        </a><a class="source-link" href="sources/0329_RUBIES-UDS-63139.html" target="viewer" data-source-number="329">
+          <span class="srcid">#329 · RUBIES-UDS-63139</span>
+          <span class="source-meta">1 spectra · max SNR N/A</span>
+        </a></div></details>
+<details class="project-group" open><summary>STARK (1)</summary><div class="source-list"><a class="source-link" href="sources/0079_STARK_2478_16056.html" target="viewer" data-source-number="79">
+          <span class="srcid">#79 · STARK_2478_16056</span>
+          <span class="source-meta">3 spectra · max SNR 66.23</span>
+        </a></div></details>
+<details class="project-group" open><summary>SUSPENSE (3)</summary><div class="source-list"><a class="source-link" href="sources/0114_SUSPENSE_2110_130647.html" target="viewer" data-source-number="114">
+          <span class="srcid">#114 · SUSPENSE_2110_130647</span>
+          <span class="source-meta">1 spectra · max SNR 57.24</span>
+        </a><a class="source-link" href="sources/0283_SUSPENSE_2110_128452.html" target="viewer" data-source-number="283">
+          <span class="srcid">#283 · SUSPENSE_2110_128452</span>
+          <span class="source-meta">1 spectra · max SNR 17.17</span>
+        </a><a class="source-link" href="sources/0297_SUSPENSE_2110_130040.html" target="viewer" data-source-number="297">
+          <span class="srcid">#297 · SUSPENSE_2110_130040</span>
+          <span class="source-meta">1 spectra · max SNR 15.07</span>
+        </a></div></details>
+<details class="project-group" open><summary>UDS (35)</summary><div class="source-list"><a class="source-link" href="sources/0110_UDS-143683.html" target="viewer" data-source-number="110">
+          <span class="srcid">#110 · UDS-143683</span>
+          <span class="source-meta">2 spectra · max SNR 58.03</span>
+        </a><a class="source-link" href="sources/0117_UDS-920396.html" target="viewer" data-source-number="117">
+          <span class="srcid">#117 · UDS-920396</span>
+          <span class="source-meta">3 spectra · max SNR 56.04</span>
+        </a><a class="source-link" href="sources/0156_UDS-154183.html" target="viewer" data-source-number="156">
+          <span class="srcid">#156 · UDS-154183</span>
+          <span class="source-meta">2 spectra · max SNR 47.88</span>
+        </a><a class="source-link" href="sources/0160_UDS-961025.html" target="viewer" data-source-number="160">
+          <span class="srcid">#160 · UDS-961025</span>
+          <span class="source-meta">2 spectra · max SNR 46.44</span>
+        </a><a class="source-link" href="sources/0169_UDS-53452.html" target="viewer" data-source-number="169">
+          <span class="srcid">#169 · UDS-53452</span>
+          <span class="source-meta">2 spectra · max SNR 44.90</span>
+        </a><a class="source-link" href="sources/0189_UDS-14947.html" target="viewer" data-source-number="189">
+          <span class="srcid">#189 · UDS-14947</span>
+          <span class="source-meta">2 spectra · max SNR 40.65</span>
+        </a><a class="source-link" href="sources/0201_UDS-144195.html" target="viewer" data-source-number="201">
+          <span class="srcid">#201 · UDS-144195</span>
+          <span class="source-meta">2 spectra · max SNR 38.89</span>
+        </a><a class="source-link" href="sources/0224_UDS-19112.html" target="viewer" data-source-number="224">
+          <span class="srcid">#224 · UDS-19112</span>
+          <span class="source-meta">2 spectra · max SNR 35.05</span>
+        </a><a class="source-link" href="sources/0226_UDS-5496.html" target="viewer" data-source-number="226">
+          <span class="srcid">#226 · UDS-5496</span>
+          <span class="source-meta">2 spectra · max SNR 34.42</span>
+        </a><a class="source-link" href="sources/0229_UDS-149298.html" target="viewer" data-source-number="229">
+          <span class="srcid">#229 · UDS-149298</span>
+          <span class="source-meta">3 spectra · max SNR 33.87</span>
+        </a><a class="source-link" href="sources/0231_UDS-42289.html" target="viewer" data-source-number="231">
+          <span class="srcid">#231 · UDS-42289</span>
+          <span class="source-meta">2 spectra · max SNR 32.96</span>
+        </a><a class="source-link" href="sources/0234_UDS-44043.html" target="viewer" data-source-number="234">
+          <span class="srcid">#234 · UDS-44043</span>
+          <span class="source-meta">1 spectra · max SNR 31.94</span>
+        </a><a class="source-link" href="sources/0235_UDS-167741.html" target="viewer" data-source-number="235">
+          <span class="srcid">#235 · UDS-167741</span>
+          <span class="source-meta">2 spectra · max SNR 31.55</span>
+        </a><a class="source-link" href="sources/0241_UDS-23438.html" target="viewer" data-source-number="241">
+          <span class="srcid">#241 · UDS-23438</span>
+          <span class="source-meta">2 spectra · max SNR 30.40</span>
+        </a><a class="source-link" href="sources/0243_UDS-171824.html" target="viewer" data-source-number="243">
+          <span class="srcid">#243 · UDS-171824</span>
+          <span class="source-meta">2 spectra · max SNR 29.70</span>
+        </a><a class="source-link" href="sources/0245_UDS-143498.html" target="viewer" data-source-number="245">
+          <span class="srcid">#245 · UDS-143498</span>
+          <span class="source-meta">1 spectra · max SNR 29.50</span>
+        </a><a class="source-link" href="sources/0260_UDS-919440.html" target="viewer" data-source-number="260">
+          <span class="srcid">#260 · UDS-919440</span>
+          <span class="source-meta">3 spectra · max SNR 23.47</span>
+        </a><a class="source-link" href="sources/0264_UDS-966096.html" target="viewer" data-source-number="264">
+          <span class="srcid">#264 · UDS-966096</span>
+          <span class="source-meta">2 spectra · max SNR 21.76</span>
+        </a><a class="source-link" href="sources/0266_UDS-840721.html" target="viewer" data-source-number="266">
+          <span class="srcid">#266 · UDS-840721</span>
+          <span class="source-meta">2 spectra · max SNR 20.97</span>
+        </a><a class="source-link" href="sources/0268_UDS-143741.html" target="viewer" data-source-number="268">
+          <span class="srcid">#268 · UDS-143741</span>
+          <span class="source-meta">2 spectra · max SNR 20.79</span>
+        </a><a class="source-link" href="sources/0269_UDS-24447.html" target="viewer" data-source-number="269">
+          <span class="srcid">#269 · UDS-24447</span>
+          <span class="source-meta">2 spectra · max SNR 20.43</span>
+        </a><a class="source-link" href="sources/0270_UDS-848745.html" target="viewer" data-source-number="270">
+          <span class="srcid">#270 · UDS-848745</span>
+          <span class="source-meta">2 spectra · max SNR 20.29</span>
+        </a><a class="source-link" href="sources/0272_UDS-19785.html" target="viewer" data-source-number="272">
+          <span class="srcid">#272 · UDS-19785</span>
+          <span class="source-meta">1 spectra · max SNR 19.34</span>
+        </a><a class="source-link" href="sources/0273_UDS-34411.html" target="viewer" data-source-number="273">
+          <span class="srcid">#273 · UDS-34411</span>
+          <span class="source-meta">2 spectra · max SNR 19.29</span>
+        </a><a class="source-link" href="sources/0286_UDS-60452.html" target="viewer" data-source-number="286">
+          <span class="srcid">#286 · UDS-60452</span>
+          <span class="source-meta">1 spectra · max SNR 17.10</span>
+        </a><a class="source-link" href="sources/0296_UDS-830237.html" target="viewer" data-source-number="296">
+          <span class="srcid">#296 · UDS-830237</span>
+          <span class="source-meta">4 spectra · max SNR 15.38</span>
+        </a><a class="source-link" href="sources/0306_UDS-53692.html" target="viewer" data-source-number="306">
+          <span class="srcid">#306 · UDS-53692</span>
+          <span class="source-meta">2 spectra · max SNR 12.59</span>
+        </a><a class="source-link" href="sources/0309_UDS-41571.html" target="viewer" data-source-number="309">
+          <span class="srcid">#309 · UDS-41571</span>
+          <span class="source-meta">2 spectra · max SNR 11.35</span>
+        </a><a class="source-link" href="sources/0312_UDS-916674.html" target="viewer" data-source-number="312">
+          <span class="srcid">#312 · UDS-916674</span>
+          <span class="source-meta">2 spectra · max SNR 10.97</span>
+        </a><a class="source-link" href="sources/0316_UDS-33938.html" target="viewer" data-source-number="316">
+          <span class="srcid">#316 · UDS-33938</span>
+          <span class="source-meta">4 spectra · max SNR 9.78</span>
+        </a><a class="source-link" href="sources/0317_UDS-981721.html" target="viewer" data-source-number="317">
+          <span class="srcid">#317 · UDS-981721</span>
+          <span class="source-meta">5 spectra · max SNR 8.95</span>
+        </a><a class="source-link" href="sources/0321_UDS-967770.html" target="viewer" data-source-number="321">
+          <span class="srcid">#321 · UDS-967770</span>
+          <span class="source-meta">2 spectra · max SNR 7.04</span>
+        </a><a class="source-link" href="sources/0324_UDS-36171.html" target="viewer" data-source-number="324">
+          <span class="srcid">#324 · UDS-36171</span>
+          <span class="source-meta">2 spectra · max SNR 6.05</span>
+        </a><a class="source-link" href="sources/0330_UDS-40579.html" target="viewer" data-source-number="330">
+          <span class="srcid">#330 · UDS-40579</span>
+          <span class="source-meta">4 spectra · max SNR N/A</span>
+        </a><a class="source-link" href="sources/0331_UDS-57040.html" target="viewer" data-source-number="331">
+          <span class="srcid">#331 · UDS-57040</span>
+          <span class="source-meta">0 spectra · max SNR N/A</span>
+        </a></div></details>
+<details class="project-group" open><summary>VALENTINO (27)</summary><div class="source-list"><a class="source-link" href="sources/0003_VALENTINO_3567_793.html" target="viewer" data-source-number="3">
+          <span class="srcid">#3 · VALENTINO_3567_793</span>
+          <span class="source-meta">1 spectra · max SNR 103.30</span>
+        </a><a class="source-link" href="sources/0025_VALENTINO_3567_53035.html" target="viewer" data-source-number="25">
+          <span class="srcid">#25 · VALENTINO_3567_53035</span>
+          <span class="source-meta">1 spectra · max SNR 89.38</span>
+        </a><a class="source-link" href="sources/0028_VALENTINO_3567_217057.html" target="viewer" data-source-number="28">
+          <span class="srcid">#28 · VALENTINO_3567_217057</span>
+          <span class="source-meta">1 spectra · max SNR 87.74</span>
+        </a><a class="source-link" href="sources/0033_VALENTINO_3567_10480.html" target="viewer" data-source-number="33">
+          <span class="srcid">#33 · VALENTINO_3567_10480</span>
+          <span class="source-meta">1 spectra · max SNR 84.03</span>
+        </a><a class="source-link" href="sources/0052_VALENTINO_3567_51909.html" target="viewer" data-source-number="52">
+          <span class="srcid">#52 · VALENTINO_3567_51909</span>
+          <span class="source-meta">1 spectra · max SNR 74.89</span>
+        </a><a class="source-link" href="sources/0061_VALENTINO_3567_24.html" target="viewer" data-source-number="61">
+          <span class="srcid">#61 · VALENTINO_3567_24</span>
+          <span class="source-meta">1 spectra · max SNR 71.93</span>
+        </a><a class="source-link" href="sources/0074_VALENTINO_3567_18.html" target="viewer" data-source-number="74">
+          <span class="srcid">#74 · VALENTINO_3567_18</span>
+          <span class="source-meta">1 spectra · max SNR 67.88</span>
+        </a><a class="source-link" href="sources/0084_VALENTINO_3567_54546.html" target="viewer" data-source-number="84">
+          <span class="srcid">#84 · VALENTINO_3567_54546</span>
+          <span class="source-meta">2 spectra · max SNR 64.38</span>
+        </a><a class="source-link" href="sources/0091_VALENTINO_3567_51372.html" target="viewer" data-source-number="91">
+          <span class="srcid">#91 · VALENTINO_3567_51372</span>
+          <span class="source-meta">1 spectra · max SNR 62.13</span>
+        </a><a class="source-link" href="sources/0098_VALENTINO_3567_54545.html" target="viewer" data-source-number="98">
+          <span class="srcid">#98 · VALENTINO_3567_54545</span>
+          <span class="source-meta">2 spectra · max SNR 60.65</span>
+        </a><a class="source-link" href="sources/0099_VALENTINO_3567_1552.html" target="viewer" data-source-number="99">
+          <span class="srcid">#99 · VALENTINO_3567_1552</span>
+          <span class="source-meta">1 spectra · max SNR 60.01</span>
+        </a><a class="source-link" href="sources/0103_VALENTINO_3567_45518.html" target="viewer" data-source-number="103">
+          <span class="srcid">#103 · VALENTINO_3567_45518</span>
+          <span class="source-meta">1 spectra · max SNR 59.36</span>
+        </a><a class="source-link" href="sources/0105_VALENTINO_3567_136272.html" target="viewer" data-source-number="105">
+          <span class="srcid">#105 · VALENTINO_3567_136272</span>
+          <span class="source-meta">3 spectra · max SNR 58.89</span>
+        </a><a class="source-link" href="sources/0112_VALENTINO_3567_1369.html" target="viewer" data-source-number="112">
+          <span class="srcid">#112 · VALENTINO_3567_1369</span>
+          <span class="source-meta">1 spectra · max SNR 57.52</span>
+        </a><a class="source-link" href="sources/0123_VALENTINO_3567_4301.html" target="viewer" data-source-number="123">
+          <span class="srcid">#123 · VALENTINO_3567_4301</span>
+          <span class="source-meta">1 spectra · max SNR 55.17</span>
+        </a><a class="source-link" href="sources/0124_VALENTINO_3567_44021.html" target="viewer" data-source-number="124">
+          <span class="srcid">#124 · VALENTINO_3567_44021</span>
+          <span class="source-meta">4 spectra · max SNR 54.82</span>
+        </a><a class="source-link" href="sources/0133_VALENTINO_3567_3285.html" target="viewer" data-source-number="133">
+          <span class="srcid">#133 · VALENTINO_3567_3285</span>
+          <span class="source-meta">1 spectra · max SNR 52.36</span>
+        </a><a class="source-link" href="sources/0134_VALENTINO_3567_20910.html" target="viewer" data-source-number="134">
+          <span class="srcid">#134 · VALENTINO_3567_20910</span>
+          <span class="source-meta">1 spectra · max SNR 51.85</span>
+        </a><a class="source-link" href="sources/0170_VALENTINO_3567_55536.html" target="viewer" data-source-number="170">
+          <span class="srcid">#170 · VALENTINO_3567_55536</span>
+          <span class="source-meta">2 spectra · max SNR 44.79</span>
+        </a><a class="source-link" href="sources/0187_VALENTINO_3567_40904.html" target="viewer" data-source-number="187">
+          <span class="srcid">#187 · VALENTINO_3567_40904</span>
+          <span class="source-meta">1 spectra · max SNR 41.11</span>
+        </a><a class="source-link" href="sources/0210_VALENTINO_3567_44330.html" target="viewer" data-source-number="210">
+          <span class="srcid">#210 · VALENTINO_3567_44330</span>
+          <span class="source-meta">1 spectra · max SNR 37.01</span>
+        </a><a class="source-link" href="sources/0212_VALENTINO_3567_71.html" target="viewer" data-source-number="212">
+          <span class="srcid">#212 · VALENTINO_3567_71</span>
+          <span class="source-meta">1 spectra · max SNR 36.66</span>
+        </a><a class="source-link" href="sources/0218_VALENTINO_3567_406.html" target="viewer" data-source-number="218">
+          <span class="srcid">#218 · VALENTINO_3567_406</span>
+          <span class="source-meta">1 spectra · max SNR 35.67</span>
+        </a><a class="source-link" href="sources/0253_VALENTINO_3567_262.html" target="viewer" data-source-number="253">
+          <span class="srcid">#253 · VALENTINO_3567_262</span>
+          <span class="source-meta">1 spectra · max SNR 26.15</span>
+        </a><a class="source-link" href="sources/0284_VALENTINO_3567_1546.html" target="viewer" data-source-number="284">
+          <span class="srcid">#284 · VALENTINO_3567_1546</span>
+          <span class="source-meta">1 spectra · max SNR 17.17</span>
+        </a><a class="source-link" href="sources/0308_VALENTINO_3567_5276.html" target="viewer" data-source-number="308">
+          <span class="srcid">#308 · VALENTINO_3567_5276</span>
+          <span class="source-meta">1 spectra · max SNR 11.51</span>
+        </a><a class="source-link" href="sources/0313_VALENTINO_3567_40442.html" target="viewer" data-source-number="313">
+          <span class="srcid">#313 · VALENTINO_3567_40442</span>
+          <span class="source-meta">3 spectra · max SNR 10.73</span>
+        </a></div></details></aside><main class="main"><iframe id="viewer_frame" name="viewer" src="sources/0001_GLIMPSE_9223_329380.html"></iframe></main></div>
 </body></html>
